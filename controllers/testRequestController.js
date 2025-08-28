@@ -411,14 +411,27 @@ export const createTestRequest = async (req, res) => {
     } = req.body;
     console.log('Extracted data:', { doctorId, patientId, testType, testDescription, urgency, notes });
 
-    // Get doctor information
+    // Get doctor information - check both User and Doctor models
     console.log('Looking for doctor with ID:', doctorId);
-    const doctor = await User.findById(doctorId);
-    console.log('Doctor found:', doctor);
+    let doctor = await User.findById(doctorId);
+    let doctorModel = 'User';
+    
     if (!doctor) {
-      console.log('Doctor not found for ID:', doctorId);
+      // Try Doctor model if not found in User model
+      const Doctor = (await import('../models/Docter.js')).default; // Note: filename is Docter.js
+      doctor = await Doctor.findById(doctorId);
+      doctorModel = 'Doctor';
+      console.log('Doctor found in Doctor model:', doctor ? 'YES' : 'NO');
+    } else {
+      console.log('Doctor found in User model:', doctor ? 'YES' : 'NO');
+    }
+    
+    if (!doctor) {
+      console.log('Doctor not found in either User or Doctor model for ID:', doctorId);
       return res.status(404).json({ message: 'Doctor not found' });
     }
+    
+    console.log(`Doctor found in ${doctorModel} model:`, doctor.name || doctor.doctorName);
 
     // Get patient information
     console.log('Looking for patient with ID:', patientId);
@@ -444,7 +457,7 @@ export const createTestRequest = async (req, res) => {
       centerId: patient.centerId,
       centerName: center ? center.name : 'Unknown Center',
       centerCode: center ? center.code : 'Unknown',
-      doctorName: doctor.name,
+      doctorName: doctor.name || doctor.doctorName,
       patientName: patient.name,
       patientPhone: patient.phone,
       patientAddress: patient.address,
