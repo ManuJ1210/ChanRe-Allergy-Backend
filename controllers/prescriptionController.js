@@ -39,8 +39,11 @@ export const createPrescription = async (req, res) => {
 
 export const getPrescriptionsByPatient = async (req, res) => {
   try {
-    const { patientId } = req.query;
+    // Support both query parameter (?patientId=xxx) and path parameter (/patient/:patientId)
+    const patientId = req.params.patientId || req.query.patientId;
     console.log('getPrescriptionsByPatient called with patientId:', patientId);
+    console.log('Request params:', req.params);
+    console.log('Request query:', req.query);
     
     let records;
     if (patientId && patientId !== 'undefined') {
