@@ -206,11 +206,15 @@ const updatePatient = async (req, res) => {
       userCenterId: req.user?.centerId
     });
     
+    console.log('🔍 updatePatient request body:', req.body);
+    console.log('🔍 updatePatient patient ID:', req.params.id);
+    
     const {
       name,
       gender,
       age,
       contact,
+      phone,
       email,
       address,
       assignedDoctor,
@@ -227,7 +231,7 @@ const updatePatient = async (req, res) => {
     if (name) patient.name = name;
     if (gender) patient.gender = gender;
     if (age) patient.age = age;
-    if (contact) patient.phone = contact;
+    if (phone || contact) patient.phone = phone || contact; // Handle both phone and contact fields
     if (email) patient.email = email;
     if (address) patient.address = address;
     if (assignedDoctor) patient.assignedDoctor = assignedDoctor;
@@ -382,16 +386,43 @@ const getPatientHistory = async (req, res) => {
   try {
     console.log('🔍 getPatientHistory called with ID:', req.params.id);
     const { id } = req.params;
+    
+    // First verify patient exists
     const patient = await Patient.findById(id);
-
     if (!patient) {
       console.log('❌ Patient not found with ID:', id);
       return res.status(404).json({ message: 'Patient not found' });
     }
 
-    console.log('✅ Patient found, history:', patient.history);
-    // Return just the history array to match frontend expectations
-    res.status(200).json(patient.history || []);
+    // Import History model
+    const History = (await import('../models/historyModel.js')).default;
+    
+    // Get comprehensive history records from standalone History model
+    // Try multiple patientId formats to ensure we find the data
+    let histories = await History.find({ patientId: id }).sort({ createdAt: -1 });
+    
+    // If no results, try with ObjectId
+    if (histories.length === 0) {
+      console.log('No histories found with string patientId, trying ObjectId...');
+      const mongoose = (await import('mongoose')).default;
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        histories = await History.find({ 
+          patientId: new mongoose.Types.ObjectId(id) 
+        }).sort({ createdAt: -1 });
+      }
+    }
+    
+    console.log('✅ Found standalone history records:', histories.length);
+    console.log('History records:', histories.map(h => ({ 
+      id: h._id, 
+      patientId: h.patientId, 
+      hayFever: h.hayFever,
+      asthma: h.asthma,
+      createdAt: h.createdAt 
+    })));
+    
+    // Return the comprehensive history records (not the embedded patient.history)
+    res.status(200).json(histories);
   } catch (error) {
     console.error('❌ Get patient history error:', error);
     res.status(500).json({ message: 'Failed to fetch patient history' });

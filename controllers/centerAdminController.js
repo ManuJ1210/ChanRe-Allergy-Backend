@@ -131,11 +131,26 @@ export const createCenterAdmin = async (req, res) => {
   try {
     console.log('createCenterAdmin req.body:', req.body);
     const { name, email, password, username, centerId, ...rest } = req.body;
+    
     // Check if admin already exists for this center
-    const existing = await User.findOne({ centerId, role: 'centeradmin' });
-    if (existing) {
+    const existingCenterAdmin = await User.findOne({ centerId, role: 'centeradmin' });
+    if (existingCenterAdmin) {
       return res.status(400).json({ message: 'Admin already exists for this center' });
     }
+    
+    // Check for duplicate email or username across all users
+    const existingUser = await User.findOne({
+      $or: [{ email }, { username }]
+    });
+    if (existingUser) {
+      if (existingUser.email === email) {
+        return res.status(400).json({ message: 'User with this email already exists' });
+      }
+      if (existingUser.username === username) {
+        return res.status(400).json({ message: 'User with this username already exists' });
+      }
+    }
+    
     const newAdmin = await User.create({
       name,
       email,
@@ -146,6 +161,7 @@ export const createCenterAdmin = async (req, res) => {
       ...rest,
     });
     console.log('✅ New center admin created:', newAdmin._id, newAdmin.email);
+    
     // Update the Center's centerAdminId field
     const updatedCenter = await Center.findByIdAndUpdate(centerId, { centerAdminId: newAdmin._id }, { new: true });
     console.log('✅ Center updated with new centerAdminId:', updatedCenter?._id, '->', updatedCenter?.centerAdminId);
@@ -156,6 +172,15 @@ export const createCenterAdmin = async (req, res) => {
     res.status(201).json(adminResponse);
   } catch (err) {
     console.error('❌ Error in createCenterAdmin:', err);
+    
+    // Handle duplicate key errors more gracefully
+    if (err.code === 11000) {
+      const field = Object.keys(err.keyPattern)[0];
+      return res.status(400).json({ 
+        message: `User with this ${field} already exists. Please choose a different ${field}.` 
+      });
+    }
+    
     res.status(500).json({ message: 'Failed to create admin', error: err.message });
   }
 };

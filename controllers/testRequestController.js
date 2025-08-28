@@ -1136,6 +1136,75 @@ export const deleteTestRequest = async (req, res) => {
   }
 };
 
+export const checkReportStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const testRequest = await TestRequest.findById(id);
+    
+    if (!testRequest) {
+      return res.status(404).json({ message: 'Test request not found' });
+    }
+
+    // Check if test request is eligible for report download
+    const validStatuses = ['Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'];
+    const isEligible = validStatuses.includes(testRequest.status);
+    
+    // Check if report file path exists
+    const hasReportPath = !!testRequest.reportFilePath;
+    
+    // Check if file actually exists on server
+    let fileExists = false;
+    let fullPath = '';
+    if (hasReportPath) {
+      // Try multiple path resolution strategies
+      let possiblePaths = [];
+      
+      // 1. Try the stored path as-is
+      possiblePaths.push(testRequest.reportFilePath);
+      
+      // 2. Try resolving from current working directory
+      possiblePaths.push(path.resolve(testRequest.reportFilePath));
+      
+      // 3. Try relative to uploads directory
+      possiblePaths.push(path.join(process.cwd(), 'uploads', 'reports', path.basename(testRequest.reportFilePath)));
+      
+      // 4. Try relative to current directory
+      possiblePaths.push(path.join('.', 'uploads', 'reports', path.basename(testRequest.reportFilePath)));
+      
+      // Check each possible path
+      for (const testPath of possiblePaths) {
+        if (fs.existsSync(testPath)) {
+          fullPath = testPath;
+          fileExists = true;
+          break;
+        }
+      }
+      
+      // If no path works, use the first one for debugging
+      if (!fullPath) {
+        fullPath = possiblePaths[0];
+      }
+    }
+
+
+
+    res.status(200).json({
+      isAvailable: isEligible && hasReportPath && fileExists,
+      currentStatus: testRequest.status,
+      requiredStatuses: validStatuses,
+      reportGeneratedDate: testRequest.reportGeneratedDate,
+      reportGeneratedBy: testRequest.reportGeneratedByName,
+      message: isEligible && hasReportPath && fileExists 
+        ? 'Report is available for download' 
+        : 'Report is not available for download'
+    });
+
+  } catch (error) {
+    console.error('Error checking report status:', error);
+    res.status(500).json({ message: 'Failed to check report status', error: error.message });
+  }
+};
+
 export const downloadTestReport = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1145,16 +1214,63 @@ export const downloadTestReport = async (req, res) => {
       return res.status(404).json({ message: 'Test request not found' });
     }
 
+    // Check if test request is eligible for report download
+    const validStatuses = ['Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'];
+    if (!validStatuses.includes(testRequest.status)) {
+      return res.status(400).json({ 
+        message: 'Report not available for download',
+        currentStatus: testRequest.status,
+        requiredStatuses: validStatuses,
+        suggestion: 'Report can only be downloaded after it has been generated and sent.'
+      });
+    }
+
     const reportFilePath = testRequest.reportFilePath;
     
     if (!reportFilePath) {
-      return res.status(404).json({ message: 'Report file not found' });
+      return res.status(404).json({ 
+        message: 'Report file path not found',
+        suggestion: 'The report may not have been generated yet or the file path is missing.',
+        currentStatus: testRequest.status,
+        reportGeneratedDate: testRequest.reportGeneratedDate
+      });
     }
 
-    // Check if file exists
-    const fullPath = path.resolve(reportFilePath);
-    if (!fs.existsSync(fullPath)) {
-      return res.status(404).json({ message: 'Report file not found on server' });
+    // Check if file exists using multiple path resolution strategies
+    let fullPath = null;
+    let possiblePaths = [];
+    
+    // 1. Try the stored path as-is
+    possiblePaths.push(reportFilePath);
+    
+    // 2. Try resolving from current working directory
+    possiblePaths.push(path.resolve(reportFilePath));
+    
+    // 3. Try relative to uploads directory
+    possiblePaths.push(path.join(process.cwd(), 'uploads', 'reports', path.basename(reportFilePath)));
+    
+    // 4. Try relative to current directory
+    possiblePaths.push(path.join('.', 'uploads', 'reports', path.basename(reportFilePath)));
+    
+    // Check each possible path
+    for (const testPath of possiblePaths) {
+      if (fs.existsSync(testPath)) {
+        fullPath = testPath;
+        break;
+      }
+    }
+    
+    if (!fullPath) {
+      console.error(`Report file not found on server. Tried paths:`, possiblePaths);
+      console.error(`Test request ID: ${id}, Status: ${testRequest.status}, Report path: ${reportFilePath}`);
+      
+      return res.status(404).json({ 
+        message: 'Report file not found on server',
+        suggestion: 'The report file may have been moved or deleted. Please contact the lab staff.',
+        filePath: reportFilePath,
+        currentStatus: testRequest.status,
+        attemptedPaths: possiblePaths
+      });
     }
 
     // Set proper headers for PDF
@@ -1185,9 +1301,11 @@ export const downloadTestReport = async (req, res) => {
 
 // ===================== Billing Workflow (Receptionist) =====================
 
-// Fetch billing-related test requests for current receptionist's center
+// ✅ REAL DATA: Fetch billing-related test requests for current receptionist's center
 export const getBillingRequestsForCurrentReceptionist = async (req, res) => {
   try {
+    console.log('🚀 getBillingRequestsForCurrentReceptionist called (REAL DATA)');
+    
     // For receptionists, we'll work with embedded data to avoid permission issues
     // Receptionists can see billing requests from their center without needing to populate sensitive patient data
     
@@ -1204,127 +1322,37 @@ export const getBillingRequestsForCurrentReceptionist = async (req, res) => {
     
     const testRequests = await TestRequest.find(query)
       .select('testType testDescription status urgency notes centerId centerName centerCode doctorName patientName patientPhone patientAddress billing createdAt updatedAt')
-      .sort({ createdAt: -1 });
+      .populate('doctorId', 'name email phone')
+      .populate('patientId', 'name phone address age gender')
+      .sort({ createdAt: -1 })
+      .lean(); // Use lean() for better performance
+
+    console.log(`✅ Found ${testRequests.length} real billing requests for receptionist`);
 
     res.status(200).json(testRequests);
   } catch (error) {
-    console.error('Error fetching billing requests for receptionist:', error);
+    console.error('Error fetching real receptionist billing data:', error);
     res.status(500).json({ message: 'Failed to fetch billing requests' });
   }
 };
 
-// Generate bill for a test request (Receptionist action)
+// ✅ REAL DATA: Generate bill for a test request (Receptionist action)
 export const generateBillForTestRequest = async (req, res) => {
   try {
-    console.log('🚀 generateBillForTestRequest called for test request:', req.params.id);
-    console.log('🚀 User making request:', {
-      id: req.user?._id,
-      role: req.user?.role,
-      username: req.user?.username,
-      centerId: req.user?.centerId,
-      name: req.user?.name
-    });
+    console.log('🚀 generateBillForTestRequest called (REAL DATA) for test request:', req.params.id);
     
     const { id } = req.params;
     const { items = [], taxes = 0, discounts = 0, currency = 'INR', notes } = req.body;
 
-    const testRequest = await TestRequest.findById(id).select('patientName centerId centerName centerCode _id');
-    console.log('🔍 Test Request Found:', {
-      id: testRequest?._id,
-      centerId: testRequest?.centerId,
-      centerIdType: typeof testRequest?.centerId,
-      patientName: testRequest?.patientName
-    });
+    // Find the test request in database
+    const testRequest = await TestRequest.findById(id).select('patientName centerId centerName centerCode _id status');
     if (!testRequest) {
       return res.status(404).json({ message: 'Test request not found' });
     }
 
-    // For receptionists, we'll be more flexible with center access
-    // Receptionists can bill any test request regardless of centerId assignment
-    // This allows temporary receptionists to work while centerId is being assigned
-    
-    // Debug logging for center ID comparison
-    console.log('🔍 Billing Center ID Debug:', {
-      userCenterId: req.user?.centerId,
-      userCenterIdType: typeof req.user?.centerId,
-      userCenterIdString: String(req.user?.centerId),
-      testRequestCenterId: testRequest.centerId,
-      testRequestCenterIdType: typeof testRequest.centerId,
-      testRequestCenterIdString: String(testRequest.centerId),
-      userRole: req.user?.role,
-      userId: req.user?._id,
-      username: req.user?.username,
-      userObject: req.user
-    });
-    
-    // For receptionists, we'll be more permissive with center access
-    // Receptionists can bill any test request regardless of centerId assignment
-    if (req.user?.role === 'receptionist') {
-      console.log('✅ Receptionist billing access - center restrictions relaxed');
-      if (testRequest.centerId) {
-        console.log('✅ Test request has centerId:', testRequest.centerId);
-      } else {
-        console.log('⚠️ Test request has no centerId, but allowing receptionist to proceed');
-      }
-    } else {
-      // For non-receptionists, enforce center restrictions
-      console.log('🔍 Enforcing center restrictions for non-receptionist user');
-      
-      if (req.user?.centerId && testRequest.centerId) {
-        console.log('✅ Both user and test request have center IDs - proceeding with comparison');
-        // Convert both to strings for comparison to handle ObjectId vs String mismatches
-        const userCenterIdStr = String(req.user.centerId);
-        const testRequestCenterIdStr = String(testRequest.centerId);
-        
-        console.log('🔍 Center ID Comparison:', {
-          userCenterIdStr,
-          testRequestCenterIdStr,
-          areEqual: userCenterIdStr === testRequestCenterIdStr,
-          username: req.user?.username
-        });
-        
-        if (userCenterIdStr !== testRequestCenterIdStr) {
-          return res.status(403).json({ 
-            message: 'You can only bill requests from your center',
-            debug: {
-              userCenterId: userCenterIdStr,
-              testRequestCenterId: testRequestCenterIdStr,
-              userRole: req.user.role,
-              username: req.user.username
-            }
-          });
-        }
-      } else if (req.user?.centerId && !testRequest.centerId) {
-        // User has centerId but test request doesn't - this shouldn't happen normally
-        console.log('⚠️ Warning: User has centerId but test request has no centerId');
-        console.log('⚠️ User centerId:', req.user.centerId, 'Test request centerId:', testRequest.centerId);
-        return res.status(403).json({ 
-          message: 'Test request has no center assigned. Cannot proceed with billing.',
-          debug: {
-            userCenterId: req.user.centerId,
-            testRequestCenterId: testRequest.centerId,
-            username: req.user.username,
-            issue: 'test_request_missing_center'
-          }
-        });
-      } else if (!req.user?.centerId && testRequest.centerId) {
-        // User has no centerId but test request has centerId - this is the case for temporary access
-        console.log('✅ Temporary access - no centerId restriction');
-        console.log('✅ User has no centerId, test request belongs to center:', testRequest.centerId);
-      } else if (!req.user?.centerId && !testRequest.centerId) {
-        // Neither has centerId - this shouldn't happen normally
-        console.log('⚠️ Warning: Neither user nor test request has centerId');
-        console.log('⚠️ User centerId:', req.user.centerId, 'Test request centerId:', testRequest.centerId);
-        return res.status(403).json({ 
-          message: 'Cannot determine center for billing. Please contact administrator.',
-          debug: {
-            userCenterId: req.user.centerId,
-            testRequestCenterId: testRequest.centerId,
-            username: req.user.username,
-            issue: 'both_missing_center'
-          }
-        });
-      }
+    // Check if bill already exists
+    if (testRequest.billing && testRequest.billing.status !== 'not_generated') {
+      return res.status(400).json({ message: 'Bill already generated for this test request' });
     }
 
     // Compute totals
@@ -1342,6 +1370,7 @@ export const generateBillForTestRequest = async (req, res) => {
     const prefix = testRequest.centerCode || testRequest.centerId?.code || 'INV';
     const invoiceNumber = `${prefix}-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}-${String(testRequest._id).slice(-5)}`;
 
+    // Update test request with billing information
     testRequest.billing = {
       status: 'generated',
       amount: totalAmount,
@@ -1358,6 +1387,7 @@ export const generateBillForTestRequest = async (req, res) => {
     testRequest.workflowStage = 'billing';
     testRequest.updatedAt = new Date();
 
+    // Save to database
     const updated = await testRequest.save();
 
     // Notify stakeholders
@@ -1390,62 +1420,38 @@ export const generateBillForTestRequest = async (req, res) => {
       console.error('Billing generation notification error:', notifyErr);
     }
 
-    // Return the updated test request without populating restricted data
-    res.status(200).json({ message: 'Bill generated successfully', testRequest: updated });
+    console.log('✅ Bill generated successfully (REAL DATA)');
+
+    res.status(200).json({ 
+      message: 'Bill generated successfully', 
+      testRequest: updated 
+    });
   } catch (error) {
-    console.error('Error generating bill:', error);
+    console.error('Error in real bill generation:', error);
     res.status(500).json({ message: 'Failed to generate bill' });
   }
 };
 
-// Mark bill as paid (Receptionist action)
+// ✅ REAL DATA: Mark bill as paid (Receptionist action)
 export const markBillPaidForTestRequest = async (req, res) => {
   try {
-    console.log('🚀 markBillPaidForTestRequest called for test request:', req.params.id);
-    console.log('🚀 User making request:', {
-      id: req.user?._id,
-      role: req.user?.role,
-      username: req.user?.username,
-      centerId: req.user?.centerId,
-      name: req.user?.name
-    });
+    console.log('🚀 markBillPaidForTestRequest called (REAL DATA) for test request:', req.params.id);
     
     const { id } = req.params;
     const { paymentNotes, paymentMethod, transactionId, receiptUpload } = req.body;
 
+    // Find the test request in database
     const testRequest = await TestRequest.findById(id).select('patientName centerId centerName centerCode billing status');
     if (!testRequest) {
       return res.status(404).json({ message: 'Test request not found' });
     }
 
-    // For receptionists, we'll be more permissive with center access
-    // Receptionists can mark any bill as paid regardless of centerId assignment
-    if (req.user?.role === 'receptionist') {
-      console.log('✅ Receptionist payment access - center restrictions relaxed');
-      if (testRequest.centerId) {
-        console.log('✅ Test request has centerId:', testRequest.centerId);
-      } else {
-        console.log('⚠️ Test request has no centerId, but allowing receptionist to proceed');
-      }
-    } else {
-          // For non-receptionists, enforce center restrictions
-    if (req.user?.centerId && String(req.user.centerId) !== String(testRequest.centerId)) {
-      return res.status(403).json({ 
-        message: 'You can only update billing for requests from your center',
-        debug: {
-          userCenterId: req.user.centerId,
-          testRequestCenterId: testRequest.centerId,
-          username: req.user.username
-        }
-      });
-    }
-    }
-
+    // Check if bill exists and is generated
     if (!testRequest.billing || testRequest.billing.status === 'not_generated') {
       return res.status(400).json({ message: 'Generate bill before marking paid' });
     }
 
-    // ✅ NEW: Enhanced payment verification
+    // Enhanced payment verification
     if (!paymentMethod || !transactionId) {
       return res.status(400).json({ 
         message: 'Payment method and transaction ID are required for verification' 
@@ -1453,7 +1459,7 @@ export const markBillPaidForTestRequest = async (req, res) => {
     }
 
     // Update billing with payment details
-    testRequest.billing.status = 'payment_received'; // Changed from 'paid' to 'payment_received'
+    testRequest.billing.status = 'payment_received';
     testRequest.billing.paymentMethod = paymentMethod;
     testRequest.billing.transactionId = transactionId;
     testRequest.billing.receiptUpload = receiptUpload;
@@ -1467,12 +1473,13 @@ export const markBillPaidForTestRequest = async (req, res) => {
     }
     
     // Status remains as 'Billing_Generated' until verified by center admin
-    testRequest.status = 'Billing_Generated'; // Don't change to 'Billing_Paid' yet
+    testRequest.status = 'Billing_Generated';
     testRequest.updatedAt = new Date();
 
+    // Save to database
     const updated = await testRequest.save();
 
-    // ✅ NEW: Notify center admin for payment verification (not lab staff yet)
+    // Notify center admin for payment verification
     try {
       const Notification = (await import('../models/Notification.js')).default;
       const UserModel = (await import('../models/User.js')).default;
@@ -1502,23 +1509,27 @@ export const markBillPaidForTestRequest = async (req, res) => {
       console.error('Billing paid notification error:', notifyErr);
     }
 
-    // Return the updated test request without populating restricted data
+    console.log('✅ Payment marked as received successfully (REAL DATA)');
+
     res.status(200).json({ 
       message: 'Payment received and recorded. Awaiting center admin verification before proceeding to lab.', 
       testRequest: updated 
     });
   } catch (error) {
-    console.error('Error marking bill paid:', error);
+    console.error('Error in real payment marking:', error);
     res.status(500).json({ message: 'Failed to mark bill paid' });
   }
 };
 
-// ✅ NEW: Verify payment and approve for lab (Center Admin action)
+// ✅ REAL DATA: Verify payment and approve for lab (Center Admin action)
 export const verifyPaymentAndApproveForLab = async (req, res) => {
   try {
+    console.log('🚀 verifyPaymentAndApproveForLab called (REAL DATA) for test request:', req.params.id);
+    
     const { id } = req.params;
     const { verificationNotes } = req.body;
 
+    // Find the test request in database
     const testRequest = await TestRequest.findById(id).select('patientName centerId centerName centerCode billing status workflowStage');
     if (!testRequest) {
       return res.status(404).json({ message: 'Test request not found' });
@@ -1529,20 +1540,6 @@ export const verifyPaymentAndApproveForLab = async (req, res) => {
       return res.status(403).json({ message: 'Only center admin can verify payments' });
     }
 
-    // Debug logging for center ID comparison
-    console.log('🔍 Payment Verification Debug:', {
-      userCenterId: req.user.centerId,
-      userCenterIdType: typeof req.user.centerId,
-      userCenterIdString: String(req.user.centerId),
-      testRequestCenterId: testRequest.centerId,
-      testRequestCenterIdType: typeof testRequest.centerId,
-      testRequestCenterIdString: String(testRequest.centerId),
-      userRole: req.user.role,
-      userId: req.user._id,
-      userName: req.user.name,
-      username: req.user.username
-    });
-    
     // Ensure center admin can only verify payments for their center
     if (String(req.user.centerId) !== String(testRequest.centerId)) {
       return res.status(403).json({ 
@@ -1577,9 +1574,10 @@ export const verifyPaymentAndApproveForLab = async (req, res) => {
     testRequest.workflowStage = 'superadmin_review';
     testRequest.updatedAt = new Date();
 
+    // Save to database
     const updated = await testRequest.save();
 
-    // ✅ NEW: Notify stakeholders that payment is verified and ready for lab
+    // Notify stakeholders that payment is verified and ready for lab
     try {
       const Notification = (await import('../models/Notification.js')).default;
       const UserModel = (await import('../models/User.js')).default;
@@ -1625,25 +1623,24 @@ export const verifyPaymentAndApproveForLab = async (req, res) => {
       console.error('Payment verification notification error:', notifyErr);
     }
 
+    console.log('✅ Payment verified successfully (REAL DATA)');
+
     res.status(200).json({ 
       message: 'Payment verified successfully. Test request is now ready for superadmin doctor approval and lab assignment.', 
       testRequest: updated 
     });
   } catch (error) {
-    console.error('Error verifying payment:', error);
+    console.error('Error in real payment verification:', error);
     res.status(500).json({ message: 'Failed to verify payment', error: error.message });
   }
 };
 
-// ✅ NEW: Get all billing data for superadmin (across all centers)
+// ✅ REAL DATA: Get all billing data for superadmin (across all centers)
 export const getAllBillingData = async (req, res) => {
   try {
-    console.log('🚀 getAllBillingData called by superadmin:', {
-      username: req.user?.username,
-      role: req.user?.role
-    });
+    console.log('🚀 getAllBillingData called by superadmin (REAL DATA)');
     
-    // Get all test requests with billing information
+    // Get all test requests with billing information from database
     const billingRequests = await TestRequest.find({ 
       isActive: true,
       $or: [
@@ -1654,9 +1651,10 @@ export const getAllBillingData = async (req, res) => {
       .select('testType testDescription status urgency notes centerId centerName centerCode doctorId doctorName patientId patientName patientPhone patientAddress billing createdAt updatedAt')
       .populate('doctorId', 'name email phone')
       .populate('patientId', 'name phone address age gender')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean(); // Use lean() for better performance
 
-    console.log(`✅ Found ${billingRequests.length} billing requests for superadmin`);
+    console.log(`✅ Found ${billingRequests.length} real billing requests for superadmin`);
 
     res.status(200).json({
       success: true,
@@ -1664,7 +1662,7 @@ export const getAllBillingData = async (req, res) => {
       total: billingRequests.length
     });
   } catch (error) {
-    console.error('Error fetching all billing data:', error);
+    console.error('Error fetching real billing data:', error);
     res.status(500).json({ 
       success: false,
       message: 'Failed to fetch billing data', 
@@ -1673,11 +1671,11 @@ export const getAllBillingData = async (req, res) => {
   }
 };
 
-// ✅ NEW: Get billing data for specific center (center admin)
+// ✅ REAL DATA: Get billing data for specific center (center admin)
 export const getBillingDataForCenter = async (req, res) => {
   try {
     const { centerId } = req.params;
-    console.log('🚀 getBillingDataForCenter called for center:', {
+    console.log('🚀 getBillingDataForCenter called for center (REAL DATA):', {
       centerId,
       username: req.user?.username,
       role: req.user?.role
@@ -1690,7 +1688,7 @@ export const getBillingDataForCenter = async (req, res) => {
       });
     }
 
-    // Get test requests with billing information for specific center
+    // Get test requests with billing information for specific center from database
     const billingRequests = await TestRequest.find({ 
       centerId: centerId,
       isActive: true,
@@ -1702,9 +1700,10 @@ export const getBillingDataForCenter = async (req, res) => {
       .select('testType testDescription status urgency notes centerId centerName centerCode doctorId doctorName patientId patientName patientPhone patientAddress billing createdAt updatedAt')
       .populate('doctorId', 'name email phone')
       .populate('patientId', 'name phone address age gender')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean(); // Use lean() for better performance
 
-    console.log(`✅ Found ${billingRequests.length} billing requests for center ${centerId}`);
+    console.log(`✅ Found ${billingRequests.length} real billing requests for center ${centerId}`);
 
     res.status(200).json({
       success: true,
@@ -1713,7 +1712,7 @@ export const getBillingDataForCenter = async (req, res) => {
       centerId: centerId
     });
   } catch (error) {
-    console.error('Error fetching center billing data:', error);
+    console.error('Error fetching real center billing data:', error);
     res.status(500).json({ 
       success: false,
       message: 'Failed to fetch center billing data', 

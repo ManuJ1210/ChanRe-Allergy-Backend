@@ -458,19 +458,19 @@ export const getPatientDetails = async (req, res) => {
 
     // Get patient history - try both ObjectId and string formats
     console.log('Doctor fetching history for patient:', patient._id, 'Type:', typeof patient._id);
-    let history = await History.findOne({ patientId: patient._id });
-    console.log('History found with ObjectId:', !!history);
+    let histories = await History.find({ patientId: patient._id }).sort({ createdAt: -1 });
+    console.log('Histories found with ObjectId:', histories.length);
     
     // If not found with ObjectId, try with string
-    if (!history) {
-      history = await History.findOne({ patientId: patient._id.toString() });
-      console.log('History found with string:', !!history);
+    if (histories.length === 0) {
+      histories = await History.find({ patientId: patient._id.toString() }).sort({ createdAt: -1 });
+      console.log('Histories found with string:', histories.length);
     }
     
     // If still not found, try with the original patientId from params
-    if (!history) {
-      history = await History.findOne({ patientId: patientId });
-      console.log('History found with original patientId:', !!history);
+    if (histories.length === 0) {
+      histories = await History.find({ patientId: patientId }).sort({ createdAt: -1 });
+      console.log('Histories found with original patientId:', histories.length);
     }
     
     // Get patient medications
@@ -478,13 +478,31 @@ export const getPatientDetails = async (req, res) => {
     
     // Get patient tests
     const tests = await Test.find({ patient: patient._id }).sort({ date: -1 });
+    console.log('✅ Found tests for patient:', tests.length);
+    console.log('Test records:', tests.map(t => ({ 
+      id: t._id, 
+      patient: t.patient, 
+      CBC: t.CBC,
+      Hb: t.Hb,
+      date: t.date,
+      createdAt: t.createdAt 
+    })));
 
-    res.status(200).json({
+    const response = {
       patient,
-      history,
+      history: histories,
       medications,
       tests
+    };
+    
+    console.log('📤 Doctor getPatientDetails response structure:', {
+      patient: !!response.patient,
+      historyCount: response.history?.length || 0,
+      medicationsCount: response.medications?.length || 0,
+      testsCount: response.tests?.length || 0
     });
+    
+    res.status(200).json(response);
   } catch (error) {
     console.error('❌ Error fetching patient details:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -535,29 +553,47 @@ export const addTestRequest = async (req, res) => {
 
 // ✅ New: Get Test Requests by Doctor
 export const getTestRequests = async (req, res) => {
+  console.log('🚀 getTestRequests function started');
+  console.log('📋 Request details:', {
+    method: req.method,
+    url: req.url,
+    user: req.user ? { id: req.user._id, role: req.user.role } : 'No user'
+  });
+  
   try {
+    if (!req.user || !req.user._id) {
+      console.log('❌ No user found in request');
+      return res.status(401).json({ message: 'User not authenticated' });
+    }
+    
     const doctorId = req.user._id;
+    console.log('🔍 getTestRequests called for doctor:', doctorId);
+    console.log('🔍 TestRequest model available:', !!TestRequest);
     
-    // Get all patients assigned to this doctor from same center
-    const assignedPatients = await Patient.find({ 
-      assignedDoctor: doctorId,
-      centerId: req.user.centerId // Only patients from same center
-    });
-    const patientIds = assignedPatients.map(p => p._id);
+    // Simple test without complex query first
+    console.log('🔍 Testing simple TestRequest.find()...');
+    const simpleTest = await TestRequest.find({}).limit(1);
+    console.log('🔍 Simple test result:', simpleTest.length);
     
-    // Get test requests for these patients
-    const testRequests = await Test.find({ 
-      patient: { $in: patientIds },
-      requestedBy: doctorId 
+    // Find all test requests created by this doctor
+    console.log('🔍 Performing main query...');
+    const testRequests = await TestRequest.find({ 
+      doctorId: doctorId,
+      isActive: true 
     })
-    .populate('patient', 'name age gender')
-    .sort({ date: -1 });
-
-    console.log(`🔬 Found ${testRequests.length} test requests for doctor in center: ${req.user.centerId}`);
+      .populate('patientId', 'name phone address')
+      .populate('assignedLabStaffId', 'staffName')
+      .populate('reportGeneratedBy', 'staffName')
+      .sort({ createdAt: -1 });
+    
+    console.log(`✅ Found ${testRequests.length} test requests for doctor ${doctorId}`);
+    
     res.status(200).json(testRequests);
   } catch (error) {
-    console.error('❌ Error fetching test requests:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('❌ Error in getTestRequests:', error.message);
+    console.error('❌ Full error stack:', error.stack);
+    console.error('❌ Error name:', error.name);
+    res.status(500).json({ message: 'Failed to fetch test requests', error: error.message });
   }
 };
 

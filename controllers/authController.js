@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import Doctor from '../models/Docter.js';
 import LabStaff from '../models/LabStaff.js';
 import SuperAdminDoctor from '../models/SuperAdminDoctor.js';
 import SuperAdminReceptionist from '../models/SuperAdminReceptionist.js';
@@ -76,47 +77,67 @@ export const login = async (req, res) => {
   try {
     const { emailOrUsername, password } = req.body;
 
+    console.log('🔍 Login attempt with:', emailOrUsername);
+
     if (!emailOrUsername || !password) {
       return res.status(400).json({ message: 'Please provide both email/username and password' });
     }
 
-    // Check in User model first - try both email and username
+    // Check in User model first - try email and username (case insensitive)
+    console.log('🔍 Searching in User model for:', emailOrUsername);
     let user = await User.findOne({
       $or: [
-        { email: emailOrUsername },
-        { username: emailOrUsername }
+        { email: { $regex: new RegExp(`^${emailOrUsername}$`, 'i') } },
+        { username: { $regex: new RegExp(`^${emailOrUsername}$`, 'i') } }
       ]
     }).populate('centerId', 'name code');
+    
+    console.log('🔍 User found in User model:', user ? 'YES' : 'NO');
     let userType = 'User';
 
     if (!user) {
-      // Check in LabStaff model - try both email and username
-      user = await LabStaff.findOne({
+      // Check in Doctor model - try email and username (case insensitive)
+      console.log('🔍 Searching in Doctor model for:', emailOrUsername);
+      user = await Doctor.findOne({
         $or: [
-          { email: emailOrUsername },
-          { username: emailOrUsername }
+          { email: { $regex: new RegExp(`^${emailOrUsername}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${emailOrUsername}$`, 'i') } }
         ]
       });
+      console.log('🔍 User found in Doctor model:', user ? 'YES' : 'NO');
+      userType = 'Doctor';
+    }
+
+    if (!user) {
+      // Check in LabStaff model - try email and username (case insensitive)
+      console.log('🔍 Searching in LabStaff model for:', emailOrUsername);
+      user = await LabStaff.findOne({
+        $or: [
+          { email: { $regex: new RegExp(`^${emailOrUsername}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${emailOrUsername}$`, 'i') } }
+        ]
+      });
+      console.log('🔍 User found in LabStaff model:', user ? 'YES' : 'NO');
       userType = 'LabStaff';
     }
 
     if (!user) {
-      // Check in SuperAdminDoctor model - try both email and username
+      // Check in SuperAdminDoctor model - try email and username (case insensitive)
       user = await SuperAdminDoctor.findOne({
         $or: [
-          { email: emailOrUsername },
-          { username: emailOrUsername }
+          { email: { $regex: new RegExp(`^${emailOrUsername}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${emailOrUsername}$`, 'i') } }
         ]
       });
       userType = 'SuperAdminDoctor';
     }
 
     if (!user) {
-      // Check in SuperAdminReceptionist model - try both email and username
+      // Check in SuperAdminReceptionist model - try email and username (case insensitive)
       user = await SuperAdminReceptionist.findOne({
         $or: [
-          { email: emailOrUsername },
-          { username: emailOrUsername }
+          { email: { $regex: new RegExp(`^${emailOrUsername}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${emailOrUsername}$`, 'i') } }
         ]
       });
       userType = 'SuperAdminReceptionist';
@@ -129,7 +150,7 @@ export const login = async (req, res) => {
     // Check password
     const passwordMatch = await bcrypt.compare(password, user.password);
     if (!passwordMatch) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+      return res.status(401).json({ message: 'Invalid email/username or password' });
     }
 
     // Generate token

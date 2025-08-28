@@ -27,6 +27,7 @@ import {
   deleteTestRequest,
   getTestRequestStats,
   downloadTestReport,
+  checkReportStatus,
   getAllBillingData,
   getBillingDataForCenter
 } from '../controllers/testRequestController.js';
@@ -66,11 +67,14 @@ router.get('/doctor/:doctorId', protect, getTestRequestsByDoctor);
 // Get test requests by center
 router.get('/center/:centerId', protect, getTestRequestsByCenter);
 
+// Get test requests by patient
+router.get('/patient/:patientId', protect, getTestRequestsByPatient);
+
 // Get test requests by lab staff
 router.get('/lab-staff/:labStaffId', protect, getTestRequestsByLabStaff);
 
-// Get test requests by patient
-router.get('/patient/:patientId', protect, getTestRequestsByPatient);
+// Check if report is available for download
+router.get('/report-status/:id', protect, checkReportStatus);
 
 // Download test report (PDF) - Use regular protect middleware instead of pdfAuth
 router.get('/download-report/:id', protect, downloadTestReport);
