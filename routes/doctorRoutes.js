@@ -19,6 +19,19 @@ const router = express.Router();
 router.use(protect);
 router.use(ensureCenterIsolation);
 
+// Debug middleware to log all requests
+router.use((req, res, next) => {
+  console.log('🔍 Doctor route accessed:', {
+    method: req.method,
+    path: req.path,
+    userId: req.user?._id,
+    userRole: req.user?.role,
+    userType: req.user?.userType,
+    centerId: req.user?.centerId
+  });
+  next();
+});
+
 // Doctor-specific routes (for doctors to manage their patients) - PUT THESE FIRST
 router.get('/assigned-patients', getAssignedPatients);
 router.get('/test-requests', getTestRequests);

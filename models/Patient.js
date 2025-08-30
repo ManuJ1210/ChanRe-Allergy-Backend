@@ -20,6 +20,35 @@ const testSchema = new mongoose.Schema({
   date: { type: Date, default: Date.now }
 });
 
+const historySchema = new mongoose.Schema({
+  hayFever: { type: String },
+  asthma: { type: String },
+  breathingProblems: { type: String },
+  hivesSwelling: { type: String },
+  sinusTrouble: { type: String },
+  eczemaRashes: { type: String },
+  foodAllergies: { type: String },
+  drugAllergy: { type: String },
+  date: { type: Date, default: Date.now }
+});
+
+const medicationSchema = new mongoose.Schema({
+  drugName: { type: String, required: true },
+  dose: { type: String, required: true },
+  duration: { type: String, required: true },
+  frequency: { type: String },
+  prescribedBy: { type: String },
+  adverseEvent: { type: String },
+  date: { type: Date, default: Date.now }
+});
+
+const followUpSchema = new mongoose.Schema({
+  type: { type: String, required: true },
+  status: { type: String, default: 'active' },
+  notes: { type: String },
+  date: { type: Date, default: Date.now }
+});
+
 
 const patientSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -36,7 +65,10 @@ const patientSchema = new mongoose.Schema({
   assignedDoctor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   registeredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   centerCode: { type: String },
-  tests: [testSchema]
+  tests: [testSchema],
+  history: [historySchema],
+  medications: [medicationSchema],
+  followUps: [followUpSchema]
 }, { timestamps: true });
 
 const Patient = mongoose.model('Patient', patientSchema);

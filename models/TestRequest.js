@@ -42,7 +42,7 @@ const testRequestSchema = new mongoose.Schema({
   // Lab workflow fields
   status: {
     type: String,
-    enum: ['Pending', 'Superadmin_Review', 'Superadmin_Approved', 'Superadmin_Rejected', 'Assigned', 'Sample_Collection_Scheduled', 'Sample_Collected', 'In_Lab_Testing', 'Testing_Completed', 'Report_Generated', 'Report_Sent', 'Completed', 'Cancelled', 'feedback_sent'],
+    enum: ['Pending', 'Billing_Pending', 'Billing_Generated', 'Billing_Paid', 'Superadmin_Review', 'Superadmin_Approved', 'Superadmin_Rejected', 'Assigned', 'Sample_Collection_Scheduled', 'Sample_Collected', 'In_Lab_Testing', 'Testing_Completed', 'Report_Generated', 'Report_Sent', 'Completed', 'Cancelled', 'feedback_sent'],
     default: 'Pending'
   },
   
@@ -71,7 +71,7 @@ const testRequestSchema = new mongoose.Schema({
   // ✅ NEW: Workflow tracking
   workflowStage: {
     type: String,
-    enum: ['doctor_request', 'superadmin_review', 'lab_assignment', 'sample_collection', 'lab_testing', 'report_generation', 'completed'],
+    enum: ['doctor_request', 'billing', 'superadmin_review', 'lab_assignment', 'sample_collection', 'lab_testing', 'report_generation', 'completed'],
     default: 'doctor_request'
   },
   
@@ -87,6 +87,41 @@ const testRequestSchema = new mongoose.Schema({
       approvedAt: Date,
       approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'LabStaff' }
     }
+  },
+
+  // ✅ NEW: Billing information (handled by Center Receptionist)
+  billing: {
+    status: {
+      type: String,
+      enum: ['not_generated', 'generated', 'payment_received', 'paid', 'cancelled'],
+      default: 'not_generated'
+    },
+    amount: { type: Number, default: 0 },
+    currency: { type: String, default: 'INR' },
+    items: [
+      {
+        name: String,
+        code: String,
+        quantity: { type: Number, default: 1 },
+        unitPrice: { type: Number, default: 0 },
+        total: { type: Number, default: 0 }
+      }
+    ],
+    taxes: { type: Number, default: 0 },
+    discounts: { type: Number, default: 0 },
+    invoiceNumber: { type: String },
+    generatedAt: Date,
+    generatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    paidAt: Date,
+    paidBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    notes: String,
+    // ✅ NEW: Enhanced payment verification fields
+    paymentMethod: String,
+    transactionId: String,
+    receiptUpload: String,
+    verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    verifiedAt: Date,
+    verificationNotes: String
   },
   
   // Lab staff assignment

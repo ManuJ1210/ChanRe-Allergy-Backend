@@ -27,15 +27,19 @@ import testRequestRoutes from './routes/testRequestRoutes.js';
 import labReportsRoutes from './routes/labReportsRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 
+
 dotenv.config();
 
 const app = express();
 
 const allowedOrigins = [
   'http://localhost:5173',
+  'http://localhost:5174',
   'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
   'http://localhost:3000',
-  'https://billingfrontend-sigma.vercel.app'
+  'https://chenreallergyclinic.com',
+  'https://chenreallergy.com'
 ];
 // CORS options
 const corsOptions = {
@@ -69,7 +73,6 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
-app.use(cors());
 app.use(express.json());
 
 // Serve uploaded files
@@ -77,6 +80,15 @@ app.use('/uploads', express.static('uploads'));
 
 app.get('/', (req, res) => {
   res.send('API is running...');
+});
+
+// Debug endpoint to test server health
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    message: 'Server is running and healthy'
+  });
 });
 
 app.use('/api/auth', authRoutes);
@@ -102,13 +114,11 @@ app.use('/api/test-requests', testRequestRoutes);
 app.use('/api/lab-reports', labReportsRoutes);
 app.use('/api/notifications', notificationRoutes);
 
+
 // Use environment variable or fallback to local MongoDB
 const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/chenre-allergy';
 
-mongoose.connect(mongoURI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+mongoose.connect(mongoURI)
 .then(() => console.log('MongoDB connected'))
 .catch((err) => console.error('MongoDB connection failed:', err));
 

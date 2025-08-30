@@ -1127,6 +1127,17 @@ export const reviewTestRequest = async (req, res) => {
       return res.status(400).json({ message: 'Test request is not in correct status for review' });
     }
 
+    // ✅ NEW: Check if billing is completed before allowing approval
+    if (action === 'approve') {
+      if (testRequest.status === 'Billing_Pending' || testRequest.billing?.status !== 'paid') {
+        return res.status(400).json({ 
+          message: 'Cannot approve test request. Billing must be completed and paid first.',
+          currentStatus: testRequest.status,
+          billingStatus: testRequest.billing?.status || 'not_generated'
+        });
+      }
+    }
+
     // Update test request based on action
     let newStatus = '';
     let newWorkflowStage = '';
@@ -1191,7 +1202,7 @@ export const reviewTestRequest = async (req, res) => {
         type: 'test_request',
         title: `Test Request ${action === 'approve' ? 'Approved' : action === 'reject' ? 'Rejected' : 'Changes Required'}`,
         message: action === 'approve' 
-          ? `Your test request for ${testRequest.patientName} has been approved and sent to lab.`
+          ? `Your test request for ${testRequest.patientName} has been approved and is ready for lab assignment.`
           : action === 'reject'
           ? `Your test request for ${testRequest.patientName} has been rejected. Reason: ${reviewNotes}`
           : `Your test request for ${testRequest.patientName} requires changes. Please review and resubmit.`,
