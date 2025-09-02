@@ -1713,22 +1713,52 @@ export const downloadTestReport = async (req, res) => {
 
 // ===================== Billing Workflow (Receptionist) =====================
 
-// ✅ REAL DATA: Fetch all test requests for current receptionist's center (complete workflow)
+// ✅ BILLING ONLY: Fetch only billing-related test requests for current receptionist's center
 export const getBillingRequestsForCurrentReceptionist = async (req, res) => {
   try {
-    console.log('🚀 getBillingRequestsForCurrentReceptionist called (REAL DATA)');
+    console.log('🚀 getBillingRequestsForCurrentReceptionist called (BILLING ONLY)');
+    console.log('👤 User:', req.user?.username, 'Role:', req.user?.role, 'CenterId:', req.user?.centerId);
     
-    // For receptionists, we'll show all test requests from their center to see the complete workflow
-    // This includes billing, lab processing, and completed requests
+    // For receptionists, we'll show billing-related test requests
+    // Let's first check what statuses exist in the database
+    const allStatuses = await TestRequest.distinct('status');
+    console.log('📊 All available statuses in database:', allStatuses);
     
     let query = {
       isActive: true
     };
     
+    // For now, let's show all requests to debug the issue
     // If receptionist has a centerId, filter by center; otherwise show all requests
     if (req.user?.centerId) {
       query.centerId = req.user.centerId;
+      console.log('🏥 Filtering by centerId:', req.user.centerId);
+    } else {
+      console.log('🏥 No centerId found, showing all requests');
     }
+    
+    // First, let's get all requests to see what we have
+    const allRequests = await TestRequest.find(query)
+      .select('status centerId centerName')
+      .lean();
+    
+    console.log(`📋 Found ${allRequests.length} total requests for this center`);
+    console.log('📊 Status breakdown:', allRequests.reduce((acc, req) => {
+      acc[req.status] = (acc[req.status] || 0) + 1;
+      return acc;
+    }, {}));
+    
+    // Filter by billing-related statuses including Report_Sent
+    query.status = {
+      $in: [
+        'Pending',              // Initial request
+        'Billing_Pending',      // Ready for billing
+        'Billing_Generated',    // Bill generated, awaiting payment
+        'Billing_Paid',         // Payment received and verified
+        'Report_Sent',          // Report sent (treat as bill paid)
+        'Completed'             // Fully completed requests
+      ]
+    };
     
     const testRequests = await TestRequest.find(query)
       .select('testType testDescription status urgency notes centerId centerName centerCode doctorName patientName patientPhone patientAddress billing createdAt updatedAt workflowStage')
@@ -1737,11 +1767,15 @@ export const getBillingRequestsForCurrentReceptionist = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean(); // Use lean() for better performance
 
-    console.log(`✅ Found ${testRequests.length} test requests for receptionist (complete workflow)`);
+    console.log(`✅ Found ${testRequests.length} billing-related test requests for receptionist`);
+    console.log('📊 Billing status breakdown:', testRequests.reduce((acc, req) => {
+      acc[req.status] = (acc[req.status] || 0) + 1;
+      return acc;
+    }, {}));
 
     res.status(200).json(testRequests);
   } catch (error) {
-    console.error('Error fetching real receptionist billing data:', error);
+    console.error('Error fetching billing-only receptionist data:', error);
     res.status(500).json({ message: 'Failed to fetch billing requests' });
   }
 };

@@ -24,11 +24,11 @@ router.patch('/:notificationId/read', markNotificationAsRead);
 // Mark all notifications as read
 router.patch('/mark-all-read', markAllNotificationsAsRead);
 
-// Delete a single notification
-router.delete('/:notificationId', deleteNotification);
-
 // Delete all notifications for the user
 router.delete('/all', deleteAllNotifications);
+
+// Delete a single notification
+router.delete('/:notificationId', deleteNotification);
 
 // Get feedback for a specific test request
 router.get('/test-request/:testRequestId/feedback', getTestRequestFeedback);

@@ -12,7 +12,8 @@ export const getDoctorNotifications = async (req, res) => {
     .populate('sender', 'name email')
     .populate({
       path: 'data.patientId',
-      select: 'name age gender phoneNumber email address'
+      select: 'name age gender phoneNumber email address',
+      model: 'Patient'
     })
     .sort({ createdAt: -1 })
     .limit(50);
