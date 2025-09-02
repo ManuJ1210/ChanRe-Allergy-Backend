@@ -11,7 +11,7 @@ export const getAllLabReports = async (req, res) => {
         { status: 'Report_Generated' },
         { status: 'Report_Sent' },
         { status: 'Testing_Completed' },
-        { status: 'feedback_sent' }
+        { status: 'Completed' }
       ],
       isActive: true,
       reportGeneratedDate: { $exists: true, $ne: null } // Only reports that have been generated
@@ -61,7 +61,7 @@ export const getLabReportsByCenter = async (req, res) => {
         { status: 'Report_Generated' },
         { status: 'Report_Sent' },
         { status: 'Testing_Completed' },
-        { status: 'feedback_sent' }
+        { status: 'Completed' }
       ],
       isActive: true,
       reportGeneratedDate: { $exists: true, $ne: null }
@@ -187,7 +187,7 @@ export const getLabReportsStats = async (req, res) => {
         { status: 'Report_Generated' },
         { status: 'Report_Sent' },
         { status: 'Testing_Completed' },
-        { status: 'feedback_sent' }
+        { status: 'Completed' }
       ],
       isActive: true,
       reportGeneratedDate: { $exists: true, $ne: null }
@@ -219,7 +219,7 @@ export const getLabReportsStats = async (req, res) => {
             { status: 'Report_Generated' },
             { status: 'Report_Sent' },
             { status: 'Testing_Completed' },
-            { status: 'feedback_sent' }
+            { status: 'Completed' }
           ],
           isActive: true,
           reportGeneratedDate: { $exists: true, $ne: null }
@@ -262,7 +262,7 @@ export const getLabReportsStats = async (req, res) => {
             { status: 'Report_Generated' },
             { status: 'Report_Sent' },
             { status: 'Testing_Completed' },
-            { status: 'feedback_sent' }
+            { status: 'Completed' }
           ],
           isActive: true,
           reportGeneratedDate: { $exists: true, $ne: null }
@@ -287,7 +287,7 @@ export const getLabReportsStats = async (req, res) => {
             { status: 'Report_Generated' },
             { status: 'Report_Sent' },
             { status: 'Testing_Completed' },
-            { status: 'feedback_sent' }
+            { status: 'Completed' }
           ],
           isActive: true,
           reportGeneratedDate: { 
@@ -337,7 +337,7 @@ export const getLabReportsForDoctor = async (req, res) => {
         { status: 'Report_Generated' },
         { status: 'Report_Sent' },
         { status: 'Testing_Completed' },
-        { status: 'feedback_sent' }
+        { status: 'Completed' }
       ],
       isActive: true,
       reportGeneratedDate: { $exists: true, $ne: null }

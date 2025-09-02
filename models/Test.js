@@ -58,7 +58,7 @@ const testSchema = new mongoose.Schema({
     reviewedAt: { type: Date },
     status: {
       type: String,
-      enum: ['pending', 'reviewed', 'feedback_sent'],
+      enum: ['pending', 'reviewed', 'completed'],
       default: 'pending'
     },
     additionalTests: { type: String },

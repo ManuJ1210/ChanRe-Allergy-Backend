@@ -394,7 +394,7 @@ export const getSuperAdminDoctorWorkingStats = async (req, res) => {
 
     // Get total patients with completed lab reports
     const completedTestRequests = await TestRequest.find({
-      status: { $in: ['Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'] }
+      status: { $in: ['Report_Generated', 'Report_Sent', 'Completed'] }
     });
 
     const patientIds = [...new Set(completedTestRequests.map(req => req.patientId.toString()))];
@@ -408,7 +408,7 @@ export const getSuperAdminDoctorWorkingStats = async (req, res) => {
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
     const recentReports = await TestRequest.find({
-      status: { $in: ['Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'] },
+      status: { $in: ['Report_Generated', 'Report_Sent', 'Completed'] },
       updatedAt: { $gte: sevenDaysAgo }
     });
 
@@ -417,15 +417,41 @@ export const getSuperAdminDoctorWorkingStats = async (req, res) => {
       status: { $in: ['Report_Generated', 'Report_Sent'] }
     });
 
-    // Get feedback sent reports
-    const feedbackSent = await TestRequest.countDocuments({
-      status: 'feedback_sent'
+    // Get completed reports
+    const completedReports = await TestRequest.countDocuments({
+      status: 'Completed'
+    });
+
+    // Get reports awaiting superadmin review
+    const awaitingReview = await TestRequest.countDocuments({
+      status: { $in: ['Report_Generated', 'Report_Sent'] },
+      'superadminReview.status': { $ne: 'reviewed' }
+    });
+
+    // Get reports reviewed by this superadmin doctor
+    const reviewedByMe = await TestRequest.countDocuments({
+      'superadminReview.reviewedBy': userId
+    });
+
+    // Get total centers with patients
+    const centersWithPatients = await TestRequest.distinct('centerId', {
+      status: { $in: ['Report_Generated', 'Report_Sent', 'Completed'] }
+    });
+
+    // Get total doctors with reports
+    const doctorsWithReports = await TestRequest.distinct('doctorId', {
+      status: { $in: ['Report_Generated', 'Report_Sent', 'Completed'] }
     });
 
     res.json({
-      assignedPatients: totalPatients,
+      totalPatients,
+      totalLabReports,
       pendingLabReports,
-      feedbackSent,
+      completedReports,
+      awaitingReview,
+      reviewedByMe,
+      totalCenters: centersWithPatients.length,
+      totalDoctors: doctorsWithReports.length,
       recentReports: recentReports.length,
       success: true
     });
@@ -442,7 +468,7 @@ export const getSuperAdminDoctorLabReports = async (req, res) => {
 
     // Build query
     let query = {
-      status: { $in: ['Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'] }
+      status: { $in: ['Report_Generated', 'Report_Sent', 'Completed'] }
     };
 
     if (status && status !== 'all') {
@@ -478,7 +504,7 @@ export const getSuperAdminDoctorLabReports = async (req, res) => {
       let frontendStatus = report.status;
       if (report.status === 'Completed') frontendStatus = 'completed';
       else if (report.status === 'Report_Generated' || report.status === 'Report_Sent') frontendStatus = 'pending_review';
-      else if (report.status === 'feedback_sent') frontendStatus = 'feedback_sent';
+      else if (report.status === 'Completed') frontendStatus = 'completed';
       
       return {
         _id: report._id,
@@ -754,7 +780,7 @@ export const sendFeedbackToCenterDoctor = async (req, res) => {
     const updatedTestRequest = await TestRequest.findByIdAndUpdate(
       reportId,
       {
-        status: 'feedback_sent',
+        status: 'Completed',
         superadminReview: {
           reviewedBy: req.user.id,
           reviewedAt: new Date(),
@@ -765,7 +791,7 @@ export const sendFeedbackToCenterDoctor = async (req, res) => {
         }
       },
       { new: true }
-    );
+    ).populate('patientId', 'name phone address age gender');
 
     if (!updatedTestRequest) {
       return res.status(404).json({ message: 'Test report not found' });
@@ -777,10 +803,11 @@ export const sendFeedbackToCenterDoctor = async (req, res) => {
       sender: req.user.id,
       type: 'lab_report_feedback',
       title: 'Lab Report Feedback',
-      message: `Superadmin doctor has reviewed the lab report for patient ${updatedTestRequest.patientName || 'Unknown'}`,
+      message: `Superadmin doctor has reviewed the lab report for patient ${updatedTestRequest.patientName || updatedTestRequest.patientId?.name || 'Unknown Patient'}`,
       data: {
         testId: reportId,
         patientId,
+        patientName: updatedTestRequest.patientName || updatedTestRequest.patientId?.name || 'Unknown Patient',
         additionalTests,
         patientInstructions,
         notes
@@ -806,7 +833,7 @@ export const getSuperAdminDoctorPatients = async (req, res) => {
     
     // First, get all test requests with completed status
     const completedTestRequests = await TestRequest.find({
-      status: { $in: ['Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'] }
+      status: { $in: ['Report_Generated', 'Report_Sent', 'Completed'] }
     }).select('patientId');
     
     // Extract unique patient IDs from completed test requests

@@ -2,7 +2,11 @@ import AllergicBronchitis from '../models/AllergicBronchitis.js';
 
 export const createAllergicBronchitis = async (req, res) => {
   try {
-    const record = await AllergicBronchitis.create(req.body);
+    const recordData = {
+      ...req.body,
+      updatedBy: req.user._id // Set the current user as the one who created/updated the record
+    };
+    const record = await AllergicBronchitis.create(recordData);
     res.status(201).json(record);
   } catch (err) {
     res.status(500).json({ message: 'Error creating allergic bronchitis record', error: err.message });
@@ -19,6 +23,7 @@ export const getAllergicBronchitisByPatient = async (req, res) => {
 
     const records = await AllergicBronchitis.find({ patientId })
       .populate('patientId', 'name age centerCode phone gender')
+      .populate('updatedBy', 'name role')
       .sort({ createdAt: -1 });
     
     res.json(records);

@@ -2,7 +2,11 @@ import AtopicDermatitis from '../models/AtopicDermatitis.js';
 
 export const createAtopicDermatitis = async (req, res) => {
   try {
-    const record = await AtopicDermatitis.create(req.body);
+    const recordData = {
+      ...req.body,
+      updatedBy: req.user._id // Set the current user as the one who created/updated the record
+    };
+    const record = await AtopicDermatitis.create(recordData);
     res.status(201).json(record);
   } catch (err) {
     res.status(500).json({ message: 'Error creating atopic dermatitis record', error: err.message });
@@ -19,6 +23,7 @@ export const getAtopicDermatitisByPatient = async (req, res) => {
 
     const records = await AtopicDermatitis.find({ patientId })
       .populate('patientId', 'name age centerCode phone gender')
+      .populate('updatedBy', 'name role')
       .sort({ createdAt: -1 });
     
     res.json(records);
@@ -31,7 +36,8 @@ export const getAtopicDermatitisById = async (req, res) => {
   try {
     const { id } = req.params;
     const record = await AtopicDermatitis.findById(id)
-      .populate('patientId', 'name age centerCode phone gender');
+      .populate('patientId', 'name age centerCode phone gender')
+      .populate('updatedBy', 'name role');
     
     if (!record) {
       return res.status(404).json({ message: 'Record not found' });

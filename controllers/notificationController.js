@@ -66,6 +66,55 @@ export const markAllNotificationsAsRead = async (req, res) => {
   }
 };
 
+// Delete a single notification
+export const deleteNotification = async (req, res) => {
+  try {
+    const { notificationId } = req.params;
+    
+    console.log('🔍 deleteNotification called for notification:', notificationId);
+    console.log('👤 User:', req.user.id);
+    
+    const notification = await Notification.findById(notificationId);
+    
+    if (!notification) {
+      return res.status(404).json({ message: 'Notification not found' });
+    }
+    
+    // Check if the user is authorized to delete this notification
+    if (notification.recipient.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to delete this notification' });
+    }
+    
+    await Notification.findByIdAndDelete(notificationId);
+    
+    console.log('✅ Notification deleted successfully');
+    
+    res.json({ message: 'Notification deleted successfully' });
+  } catch (error) {
+    console.error('❌ Error deleting notification:', error);
+    res.status(500).json({ message: 'Error deleting notification', error: error.message });
+  }
+};
+
+// Delete all notifications for a user
+export const deleteAllNotifications = async (req, res) => {
+  try {
+    console.log('🔍 deleteAllNotifications called for user:', req.user.id);
+    
+    const result = await Notification.deleteMany({ recipient: req.user.id });
+    
+    console.log('✅ Deleted notifications count:', result.deletedCount);
+    
+    res.json({ 
+      message: 'All notifications deleted successfully',
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    console.error('❌ Error deleting all notifications:', error);
+    res.status(500).json({ message: 'Error deleting all notifications', error: error.message });
+  }
+};
+
 // Get feedback for a specific test request
 export const getTestRequestFeedback = async (req, res) => {
   try {

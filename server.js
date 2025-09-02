@@ -3,6 +3,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import cors from 'cors';
+import { protect } from './middleware/authMiddleware.js';
 
 import authRoutes from './routes/authRoutes.js';
 import centerRoutes from './routes/centerRoutes.js';
@@ -26,57 +27,34 @@ import labStaffRoutes from './routes/labStaffRoutes.js';
 import testRequestRoutes from './routes/testRequestRoutes.js';
 import labReportsRoutes from './routes/labReportsRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
+import billingRoutes from './routes/billingRoutes.js';
 
 
 dotenv.config();
 
 const app = express();
 
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:5174',
-  'http://localhost:3000',
-  'https://chenreallergyclinic.com',
-  'https://chenreallergy.com'
-];
-// CORS options
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl)
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    return callback(
-      new Error('CORS: Access denied from this origin.'),
-      false
-    );
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: [
-    'Origin',
-    'X-Requested-With',
-    'Content-Type',
-    'Accept',
-    'Authorization',
-    'Cache-Control',
-    'X-HTTP-Method-Override'
-  ],
+// Simple CORS configuration for development
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173'],
   credentials: true,
-  optionsSuccessStatus: 200
-};
-
-// Apply middleware
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 app.use(express.json());
 
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));
+app.use('/uploads/receipts', express.static('uploads/receipts'));
+// Serve files by filename for history report viewing compatibility
+app.get('/api/files/:filename', (req, res) => {
+  const { filename } = req.params;
+  if (!filename) return res.status(400).json({ message: 'Filename is required' });
+  return res.sendFile(filename, { root: 'uploads' }, (err) => {
+    if (err) return res.status(404).json({ message: 'File not found' });
+  });
+});
 
 app.get('/', (req, res) => {
   res.send('API is running...');
@@ -88,6 +66,25 @@ app.get('/api/health', (req, res) => {
     status: 'OK', 
     timestamp: new Date().toISOString(),
     message: 'Server is running and healthy'
+  });
+});
+
+// Debug endpoint to test authentication
+app.get('/api/debug/auth', protect, (req, res) => {
+  res.json({
+    message: 'Authentication debug info',
+    user: {
+      id: req.user._id,
+      role: req.user.role,
+      userType: req.user.userType,
+      centerId: req.user.centerId,
+      name: req.user.name,
+      username: req.user.username
+    },
+    headers: {
+      authorization: req.headers.authorization ? 'Bearer [TOKEN]' : 'No token',
+      contentType: req.headers['content-type']
+    }
   });
 });
 
@@ -113,6 +110,7 @@ app.use('/api/lab-staff', labStaffRoutes);
 app.use('/api/test-requests', testRequestRoutes);
 app.use('/api/lab-reports', labReportsRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/billing', billingRoutes);
 
 
 // Use environment variable or fallback to local MongoDB

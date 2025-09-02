@@ -109,20 +109,56 @@ export const ensureCenterIsolation = (req, res, next) => {
   
   // Special handling for receptionists - allow them to work temporarily without centerId
   // Receptionists need to handle billing even if they don't have a centerId assigned yet
-  if (req.user && req.user.role === 'receptionist') {
+  console.log('🔍 Checking receptionist access:', {
+    hasUser: !!req.user,
+    userRole: req.user?.role,
+    userType: req.user?.userType,
+    userId: req.user?._id,
+    username: req.user?.username,
+    centerId: req.user?.centerId,
+    fullUserObject: req.user
+  });
+  
+  // Additional debugging for billing endpoint
+  if (req.originalUrl && req.originalUrl.includes('/billing/')) {
+    console.log('🔍 BILLING ENDPOINT DEBUG:', {
+      url: req.originalUrl,
+      method: req.method,
+      userRole: req.user?.role,
+      userType: req.user?.userType,
+      hasCenterId: !!req.user?.centerId,
+      centerId: req.user?.centerId,
+      userId: req.user?._id,
+      username: req.user?.username
+    });
+  }
+  
+  // Check for different possible role field names
+  const userRole = req.user?.role || req.user?.userRole || req.user?.userType;
+  console.log('🔍 User role check:', {
+    role: req.user?.role,
+    userRole: req.user?.userRole,
+    userType: req.user?.userType,
+    finalRole: userRole
+  });
+  
+  // Allow receptionists (either by role or by userType being 'User' with role 'receptionist')
+  if (req.user && (userRole === 'receptionist' || (req.user.userType === 'User' && req.user.role === 'receptionist'))) {
     console.log('✅ Receptionist access granted for user:', {
       id: req.user._id,
-      role: req.user.role,
+      role: userRole,
+      userType: req.user.userType,
       username: req.user.username,
       centerId: req.user.centerId,
       centerIdType: typeof req.user.centerId,
-      note: 'Receptionist can access billing endpoints regardless of centerId'
+      note: 'Receptionist can access billing endpoints'
     });
     return next();
   }
   
   // For all other roles, ensure they have a centerId
-  if (!req.user || !req.user.centerId) {
+  // Exception: Receptionists can work without centerId for billing operations
+  if (!req.user || (!req.user.centerId && req.user.role !== 'receptionist')) {
     console.log('❌ Center isolation failed - No user or centerId');
     return res.status(403).json({ 
       message: 'Access denied. Center-specific access required. User must be assigned to a center.',

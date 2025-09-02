@@ -23,6 +23,7 @@ export const getGPEByPatient = async (req, res) => {
     if (patientId && patientId !== 'undefined') {
       records = await GPE.find({ patientId })
         .populate('patientId', 'name age centerCode phone gender')
+        .populate('updatedBy', 'name role')
         .sort({ createdAt: -1 });
       console.log(`Found ${records.length} records for patientId: ${patientId}`);
     } else {

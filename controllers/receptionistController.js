@@ -3,7 +3,7 @@ import User from '../models/User.js';
 // Create a new receptionist (Center-specific only)
 export const createReceptionist = async (req, res) => {
   try {
-    const { name, phone, email, username, password } = req.body;
+    const { name, phone, mobile, email, username, password, address, emergencyContact, emergencyContactName } = req.body;
     
     if (!name || !email || !password || !username) {
       return res.status(400).json({ message: 'Please fill all required fields.' });
@@ -35,15 +35,22 @@ export const createReceptionist = async (req, res) => {
       return res.status(400).json({ message: 'Receptionist with this email or username already exists' });
     }
     
+    // Handle both phone and mobile fields - prioritize mobile since that's what frontend sends
+    const phoneNumber = mobile || phone || '';
+    
     const receptionist = await User.create({
       name,
-      phone,
+      phone: phoneNumber,     // Save as phone field (User model uses phone)
+      mobile: phoneNumber,    // Also save as mobile for compatibility
       email,
       username,
       password,
       role: 'receptionist',
       centerId: centerId, // Automatically set to current user's center
-      isSuperAdminStaff: false // Explicitly mark as center-specific receptionist
+      isSuperAdminStaff: false, // Explicitly mark as center-specific receptionist
+      address: address || '',
+      emergencyContact: emergencyContact || '',
+      emergencyContactName: emergencyContactName || ''
     });
     
     console.log(`✅ Center-specific receptionist added successfully to center: ${centerId}`);
@@ -173,6 +180,8 @@ export const getReceptionistById = async (req, res) => {
       return res.status(404).json({ message: 'Receptionist not found or access denied' });
     }
     
+
+    
     res.status(200).json(receptionist);
   } catch (err) {
     console.error('❌ Error fetching receptionist:', err);
@@ -267,13 +276,25 @@ export const updateReceptionist = async (req, res) => {
       }
     }
     
-    // Update fields
-    const fields = ['name', 'phone', 'email', 'username', 'isDeleted'];
+
+    
+    // Update fields - handle both phone and mobile fields  
+    const fields = ['name', 'phone', 'mobile', 'email', 'username', 'isDeleted', 'address', 'emergencyContact', 'emergencyContactName'];
     fields.forEach((field) => {
       if (req.body[field] !== undefined) {
         receptionist[field] = req.body[field];
       }
     });
+
+    // Special handling: if phone is provided but model uses mobile, update mobile
+    if (req.body.phone !== undefined && !receptionist.phone && receptionist.mobile !== undefined) {
+      receptionist.mobile = req.body.phone;
+    }
+    
+    // Special handling: if mobile is provided but model uses phone, update phone
+    if (req.body.mobile !== undefined && !receptionist.mobile && receptionist.phone !== undefined) {
+      receptionist.phone = req.body.mobile;
+    }
 
     await receptionist.save();
     console.log(`✅ Receptionist updated successfully`);

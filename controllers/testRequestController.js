@@ -190,7 +190,7 @@ export const getCompletedTestRequestsForCurrentDoctor = async (req, res) => {
     const completedTestRequests = await TestRequest.find({ 
       doctorId, 
       centerId: req.user.centerId, // Only test requests from same center
-      status: { $in: ['Completed', 'Report_Sent', 'feedback_sent'] },
+              status: { $in: ['Completed', 'Report_Sent'] },
       isActive: true 
     })
       .populate('doctorId', 'name email phone')
@@ -298,11 +298,7 @@ export const getTestRequestsForCurrentLabStaff = async (req, res) => {
                   'Report_Generated',       // Report generated
                   'Report_Sent',            // Report sent to doctor
                   'Completed',              // Fully completed
-                  'feedback_sent',          // Feedback sent (also completed)
-                  'report_generated',       // Alternative completed status
-                  'report_sent',            // Alternative completed status
-                  'FEEDBACK_SENT',          // Alternative completed status
-                  'Feedback_Sent'           // Alternative completed status
+                  'Completed'                // Completed status
                 ] 
               } 
             }
@@ -313,11 +309,7 @@ export const getTestRequestsForCurrentLabStaff = async (req, res) => {
           status: { 
             $in: [
               'Completed',              // Fully completed
-              'feedback_sent',          // Feedback sent (also completed)
-              'report_generated',       // Alternative completed status
-              'report_sent',            // Alternative completed status
-              'FEEDBACK_SENT',          // Alternative completed status
-              'Feedback_Sent',          // Alternative completed status
+              'Completed',              // Completed status
               'Report_Generated',       // Report generated
               'Report_Sent'             // Report sent to doctor
             ] 
@@ -622,7 +614,8 @@ export const assignLabStaff = async (req, res) => {
     const { id } = req.params;
     const { assignedLabStaffId, assignedLabStaffName } = req.body;
 
-    const testRequest = await TestRequest.findById(id);
+    const testRequest = await TestRequest.findById(id)
+      .populate('patientId', 'name phone address age gender');
     if (!testRequest) {
       return res.status(404).json({ message: 'Test request not found' });
     }
@@ -659,10 +652,11 @@ export const assignLabStaff = async (req, res) => {
         sender: req.user.id,
         type: 'test_request',
         title: 'Lab Staff Assigned',
-        message: `Lab staff ${assignedLabStaffName} has been assigned to your test request for ${testRequest.patientName}. Test is now in progress.`,
+        message: `Lab staff ${assignedLabStaffName} has been assigned to your test request for ${testRequest.patientName || testRequest.patientId?.name || 'Unknown Patient'}. Test is now in progress.`,
         data: {
           testRequestId: testRequest._id,
           patientId: testRequest.patientId,
+          patientName: testRequest.patientName || testRequest.patientId?.name || 'Unknown Patient',
           assignedLabStaffId,
           assignedLabStaffName,
           status: 'Assigned'
@@ -696,20 +690,127 @@ export const scheduleSampleCollection = async (req, res) => {
       sampleCollectionNotes 
     } = req.body;
 
+    console.log('🚀 scheduleSampleCollection called with:', {
+      testRequestId: id,
+      requestBody: req.body,
+      user: req.user?.username || req.user?.id,
+      userRole: req.user?.role
+    });
+
     const testRequest = await TestRequest.findById(id);
     if (!testRequest) {
+      console.log('❌ Test request not found:', id);
       return res.status(404).json({ message: 'Test request not found' });
     }
 
-    // ✅ NEW: Check if billing is completed and lab staff is assigned before scheduling sample collection
-    if (testRequest.status !== 'Assigned' || testRequest.billing?.status !== 'paid') {
+    console.log('📋 Test request found:', {
+      testRequestId: id,
+      status: testRequest.status,
+      billingStatus: testRequest.billing?.status || 'not_generated',
+      assignedLabStaffId: testRequest.assignedLabStaffId,
+      workflowStage: testRequest.workflowStage
+    });
+
+    // ✅ Check if billing is completed before scheduling sample collection
+    // Allow multiple billing statuses that indicate billing is complete
+    const allowedBillingStatuses = ['payment_received', 'paid', 'generated'];
+    if (!testRequest.billing || !allowedBillingStatuses.includes(testRequest.billing.status)) {
+      console.log('❌ Billing validation failed:', {
+        testRequestId: id,
+        billingStatus: testRequest.billing?.status || 'not_generated',
+        currentStatus: testRequest.status,
+        allowedStatuses: allowedBillingStatuses
+      });
+      
       return res.status(400).json({
-        message: 'Cannot schedule sample collection. Billing must be completed and lab staff must be assigned first.',
+        message: 'Cannot schedule sample collection. Billing must be completed first.',
         currentStatus: testRequest.status,
         billingStatus: testRequest.billing?.status || 'not_generated',
-        labStaffAssigned: !!testRequest.assignedLabStaffId
+        requiredStatuses: allowedBillingStatuses
       });
     }
+
+    console.log('✅ Billing validation passed:', {
+      testRequestId: id,
+      billingStatus: testRequest.billing.status,
+      currentStatus: testRequest.status
+    });
+
+    // Check if lab staff is assigned (required for sample collection)
+    if (!testRequest.assignedLabStaffId) {
+      console.log('❌ Lab staff assignment validation failed:', {
+        testRequestId: id,
+        assignedLabStaffId: testRequest.assignedLabStaffId,
+        currentStatus: testRequest.status
+      });
+      
+      return res.status(400).json({
+        message: 'Cannot schedule sample collection. Lab staff must be assigned first.',
+        currentStatus: testRequest.status,
+        labStaffAssigned: false
+      });
+    }
+
+    // Check if test request is in a valid status for scheduling collection
+    const allowedStatuses = ['Billing_Generated', 'Billing_Paid', 'Assigned', 'Superadmin_Approved'];
+    if (!allowedStatuses.includes(testRequest.status)) {
+      console.log('❌ Status validation failed:', {
+        testRequestId: id,
+        currentStatus: testRequest.status,
+        allowedStatuses
+      });
+      
+      return res.status(400).json({
+        message: 'Cannot schedule sample collection. Test request must be in a valid status for collection scheduling.',
+        currentStatus: testRequest.status,
+        allowedStatuses
+      });
+    }
+
+    console.log('✅ Status validation passed:', {
+      testRequestId: id,
+      currentStatus: testRequest.status
+    });
+
+    // Validate required fields from request body
+    if (!sampleCollectorId || !sampleCollectionScheduledDate) {
+      console.log('❌ Required fields validation failed:', {
+        testRequestId: id,
+        sampleCollectorId,
+        sampleCollectionScheduledDate,
+        sampleCollectorName
+      });
+      
+      return res.status(400).json({
+        message: 'Sample collector ID and scheduled date are required.',
+        missingFields: {
+          sampleCollectorId: !sampleCollectorId,
+          sampleCollectorName: !sampleCollectorName,
+          sampleCollectionScheduledDate: !sampleCollectionScheduledDate
+        }
+      });
+    }
+
+    console.log('✅ Required fields validation passed:', {
+      testRequestId: id,
+      sampleCollectorId,
+      sampleCollectorName,
+      sampleCollectionScheduledDate
+    });
+
+    console.log('✅ Lab staff assignment validation passed:', {
+      testRequestId: id,
+      assignedLabStaffId: testRequest.assignedLabStaffId,
+      currentStatus: testRequest.status
+    });
+
+    console.log('📝 Updating test request with sample collection data:', {
+      testRequestId: id,
+      sampleCollectorId,
+      sampleCollectorName,
+      sampleCollectionScheduledDate,
+      sampleCollectionNotes
+    });
 
     testRequest.sampleCollectorId = sampleCollectorId;
     testRequest.sampleCollectorName = sampleCollectorName;
@@ -719,13 +820,22 @@ export const scheduleSampleCollection = async (req, res) => {
     testRequest.status = 'Sample_Collection_Scheduled';
     testRequest.updatedAt = new Date();
 
+    console.log('💾 Saving updated test request...');
     const updatedTestRequest = await testRequest.save();
+    console.log('✅ Test request saved successfully');
     
     const populatedTestRequest = await TestRequest.findById(updatedTestRequest._id)
       .populate('doctorId', 'name email phone')
       .populate('patientId', 'name phone address age gender')
       .populate('assignedLabStaffId', 'staffName phone')
       .populate('sampleCollectorId', 'staffName phone');
+
+    console.log('🎉 Sample collection scheduled successfully:', {
+      testRequestId: id,
+      newStatus: 'Sample_Collection_Scheduled',
+      sampleCollectorId,
+      sampleCollectorName
+    });
 
     res.status(200).json({
       message: 'Sample collection scheduled successfully',
@@ -747,14 +857,41 @@ export const updateSampleCollectionStatus = async (req, res) => {
       sampleCollectionNotes 
     } = req.body;
 
+    console.log('🚀 updateSampleCollectionStatus called with:', {
+      testRequestId: id,
+      requestBody: req.body,
+      user: req.user?.username || req.user?.id,
+      userRole: req.user?.role,
+      userCenterId: req.user?.centerId,
+      userType: req.user?.userType
+    });
+
     const testRequest = await TestRequest.findById(id);
     if (!testRequest) {
+      console.log('❌ Test request not found:', id);
       return res.status(404).json({ message: 'Test request not found' });
     }
+    
+    console.log('📋 Found test request:', {
+      id: testRequest._id,
+      status: testRequest.status,
+      sampleCollectionStatus: testRequest.sampleCollectionStatus,
+      centerId: testRequest.centerId,
+      doctorId: testRequest.doctorId,
+      patientId: testRequest.patientId
+    });
+
+    console.log('📝 Updating test request with collection data:', {
+      testRequestId: id,
+      sampleCollectionStatus,
+      sampleCollectionActualDate,
+      sampleCollectionNotes
+    });
 
     testRequest.sampleCollectionStatus = sampleCollectionStatus;
     if (sampleCollectionActualDate) {
       testRequest.sampleCollectionActualDate = sampleCollectionActualDate;
+      console.log('📅 Set actual collection date:', sampleCollectionActualDate);
     }
     if (sampleCollectionNotes) {
       testRequest.sampleCollectionNotes = sampleCollectionNotes;
@@ -769,7 +906,17 @@ export const updateSampleCollectionStatus = async (req, res) => {
 
     testRequest.updatedAt = new Date();
 
+    console.log('💾 Saving updated test request...');
+    console.log('📝 Test request before save:', {
+      id: testRequest._id,
+      status: testRequest.status,
+      sampleCollectionStatus: testRequest.sampleCollectionStatus,
+      sampleCollectionActualDate: testRequest.sampleCollectionActualDate,
+      sampleCollectionNotes: testRequest.sampleCollectionNotes
+    });
+    
     const updatedTestRequest = await testRequest.save();
+    console.log('✅ Test request saved successfully');
     
     const populatedTestRequest = await TestRequest.findById(updatedTestRequest._id)
       .populate('doctorId', 'name email phone')
@@ -777,13 +924,78 @@ export const updateSampleCollectionStatus = async (req, res) => {
       .populate('assignedLabStaffId', 'staffName phone')
       .populate('sampleCollectorId', 'staffName phone');
 
+    console.log('🎉 Sample collection status updated successfully:', {
+      testRequestId: id,
+      newStatus: testRequest.status,
+      sampleCollectionStatus,
+      sampleCollectionActualDate
+    });
+
+    // ✅ NEW: Send notification to doctor when sample collection is completed
+    if (sampleCollectionStatus === 'Completed') {
+      try {
+        const Notification = (await import('../models/Notification.js')).default;
+        const notification = new Notification({
+          recipient: testRequest.doctorId,
+          sender: req.user.id || req.user._id,
+          type: 'test_request',
+          title: 'Sample Collection Completed',
+          message: `Sample collection has been completed for ${testRequest.patientName || testRequest.patientId?.name || 'Unknown Patient'} - ${testRequest.testType || 'Unknown Test'}. Sample is now ready for lab testing.`,
+          data: {
+            testRequestId: testRequest._id,
+            patientId: testRequest.patientId,
+            patientName: testRequest.patientName || testRequest.patientId?.name || 'Unknown Patient',
+            testType: testRequest.testType || 'Unknown Test',
+            status: 'Sample_Collected',
+            sampleCollectionDate: sampleCollectionActualDate,
+            collectorName: req.user.staffName || req.user.name
+          },
+          read: false
+        });
+        await notification.save();
+        console.log('✅ Notification sent to doctor about sample collection completion');
+      } catch (notificationError) {
+        console.error('⚠️ Error sending notification to doctor:', notificationError);
+      }
+    }
+
     res.status(200).json({
       message: 'Sample collection status updated successfully',
       testRequest: populatedTestRequest
     });
   } catch (error) {
-    console.error('Error updating sample collection status:', error);
-    res.status(500).json({ message: 'Failed to update sample collection status' });
+    console.error('❌ Error updating sample collection status:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      code: error.code
+    });
+    
+    // Check for specific error types
+    if (error.name === 'ValidationError') {
+      console.error('Validation errors:', error.errors);
+      return res.status(400).json({ 
+        message: 'Validation error', 
+        errors: Object.keys(error.errors).map(key => ({
+          field: key,
+          message: error.errors[key].message
+        }))
+      });
+    }
+    
+    if (error.name === 'CastError') {
+      console.error('Cast error for field:', error.path);
+      return res.status(400).json({ 
+        message: 'Invalid data format', 
+        field: error.path 
+      });
+    }
+    
+    res.status(500).json({ 
+      message: 'Failed to update sample collection status',
+      error: error.message 
+    });
   }
 };
 
@@ -827,6 +1039,32 @@ export const startLabTesting = async (req, res) => {
       .populate('assignedLabStaffId', 'staffName phone')
       .populate('labTechnicianId', 'staffName phone');
 
+    // ✅ NEW: Send notification to doctor when lab testing starts
+    try {
+      const Notification = (await import('../models/Notification.js')).default;
+      const notification = new Notification({
+        recipient: testRequest.doctorId,
+        sender: req.user.id || req.user._id,
+        type: 'test_request',
+        title: 'Lab Testing Started',
+        message: `Lab testing has started for ${testRequest.patientName || testRequest.patientId?.name || 'Unknown Patient'} - ${testRequest.testType || 'Unknown Test'}. Testing is now in progress.`,
+        data: {
+          testRequestId: testRequest._id,
+          patientId: testRequest.patientId,
+          patientName: testRequest.patientName || testRequest.patientId?.name || 'Unknown Patient',
+          testType: testRequest.testType || 'Unknown Test',
+          status: 'In_Lab_Testing',
+          labTechnicianName: labTechnicianName,
+          testingStartDate: testRequest.testingStartDate
+        },
+        read: false
+      });
+      await notification.save();
+      console.log('✅ Notification sent to doctor about lab testing start');
+    } catch (notificationError) {
+      console.error('⚠️ Error sending notification to doctor:', notificationError);
+    }
+
     res.status(200).json({
       message: 'Lab testing started successfully',
       testRequest: populatedTestRequest
@@ -837,7 +1075,7 @@ export const startLabTesting = async (req, res) => {
   }
 };
 
-// Complete lab testing
+// Complete lab testing with PDF upload
 export const completeLabTesting = async (req, res) => {
   try {
     const { id } = req.params;
@@ -849,6 +1087,14 @@ export const completeLabTesting = async (req, res) => {
       conclusion,
       recommendations
     } = req.body;
+
+    console.log('🚀 completeLabTesting called with:', {
+      testRequestId: id,
+      requestBody: req.body,
+      uploadedFile: req.file,
+      user: req.user?.username || req.user?.id,
+      userRole: req.user?.role
+    });
 
     const testRequest = await TestRequest.findById(id);
     if (!testRequest) {
@@ -865,33 +1111,55 @@ export const completeLabTesting = async (req, res) => {
       });
     }
 
+    // Handle uploaded PDF file
+    if (req.file) {
+      console.log('📁 PDF file uploaded:', {
+        filename: req.file.filename,
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      });
+      
+      // Store the uploaded file information
+      testRequest.reportFile = req.file.filename; // Store the filename for file access
+      testRequest.reportFilePath = req.file.path; // Store the full path for backend processing
+      
+      console.log('📁 File information stored:', {
+        reportFile: testRequest.reportFile,
+        reportFilePath: testRequest.reportFilePath
+      });
+      testRequest.reportGeneratedDate = new Date();
+      testRequest.reportGeneratedBy = req.user.id || req.user._id;
+      testRequest.reportGeneratedByName = req.user.staffName || req.user.name;
+    } else {
+      console.log('⚠️ No PDF file uploaded - only notes will be saved');
+    }
+
     // Map frontend field names to model field names
-    testRequest.testResults = testResults;
-    testRequest.testingNotes = labTestingNotes; // Map to correct field name
-    testRequest.testingEndDate = labTestingCompletedDate || new Date(); // Map to correct field name
-    
-    // Transform testParameters to match PDF expectations
-    const resultValues = testParameters ? testParameters.map(param => ({
-      parameter: param.name || param.parameter,
-      value: param.value,
-      unit: param.unit,
-      normalRange: param.normalRange,
-      status: param.status || 'Normal'
-    })) : [];
-    
-    testRequest.resultValues = resultValues;
-    testRequest.conclusion = conclusion; // Use the new field
-    testRequest.recommendations = recommendations; // Use the new field
-    testRequest.labTestingCompletedDate = labTestingCompletedDate || new Date(); // Use the new field
+    testRequest.testingNotes = labTestingNotes || ''; // Map to correct field name
+    testRequest.testingEndDate = new Date(); // Set current date
+    testRequest.labTestingCompletedDate = new Date(); // Set current date
     
     // Set the lab technician who completed the testing
     testRequest.labTechnicianId = req.user.id || req.user._id;
     testRequest.labTechnicianName = req.user.staffName || req.user.name;
     
-    testRequest.status = 'Testing_Completed';
+    // Update status and workflow stage to allow progression to send report
+    if (req.file) {
+      testRequest.status = 'Report_Generated'; // Mark as report generated when PDF is uploaded
+      testRequest.workflowStage = 'report_generation'; // Set workflow to report generation stage
+      console.log('✅ Status updated to Report_Generated and workflow to report_generation due to PDF upload');
+    } else {
+      testRequest.status = 'Testing_Completed'; // Fallback if no PDF
+      testRequest.workflowStage = 'lab_testing'; // Keep in lab testing stage if no PDF
+      console.log('✅ Status updated to Testing_Completed (no PDF uploaded)');
+    }
+    
     testRequest.updatedAt = new Date();
 
+    console.log('💾 Saving updated test request...');
     const updatedTestRequest = await testRequest.save();
+    console.log('✅ Test request saved successfully');
     
     const populatedTestRequest = await TestRequest.findById(updatedTestRequest._id)
       .populate('doctorId', 'name email phone')
@@ -899,8 +1167,44 @@ export const completeLabTesting = async (req, res) => {
       .populate('assignedLabStaffId', 'staffName phone')
       .populate('labTechnicianId', 'staffName phone');
 
+    console.log('🎉 Lab report uploaded and testing completed successfully:', {
+      testRequestId: id,
+      newStatus: testRequest.status,
+      workflowStage: testRequest.workflowStage,
+      pdfFilename: req.file?.filename || 'None',
+      hasNotes: !!labTestingNotes,
+      readyForReportSending: testRequest.status === 'Report_Generated' && testRequest.workflowStage === 'report_generation'
+    });
+
+    // ✅ NEW: Send notification to doctor when lab report is generated
+    if (testRequest.status === 'Report_Generated') {
+      try {
+        const Notification = (await import('../models/Notification.js')).default;
+        const notification = new Notification({
+          recipient: testRequest.doctorId,
+          sender: req.user.id || req.user._id,
+          type: 'test_request',
+          title: 'Lab Report Generated',
+          message: `Lab report has been generated for ${testRequest.patientName || testRequest.patientId?.name || 'Unknown Patient'} - ${testRequest.testType || 'Unknown Test'}. Report is ready to be sent.`,
+          data: {
+            testRequestId: testRequest._id,
+            patientId: testRequest.patientId,
+            patientName: testRequest.patientName || testRequest.patientId?.name || 'Unknown Patient',
+            testType: testRequest.testType || 'Unknown Test',
+            status: 'Report_Generated',
+            labTechnicianName: req.user.staffName || req.user.name
+          },
+          read: false
+        });
+        await notification.save();
+        console.log('✅ Notification sent to doctor about lab report generation');
+      } catch (notificationError) {
+        console.error('⚠️ Error sending notification to doctor:', notificationError);
+      }
+    }
+
     res.status(200).json({
-      message: 'Lab testing completed successfully',
+      message: 'Lab report uploaded and testing completed successfully. Report is ready to be sent.',
       testRequest: populatedTestRequest
     });
   } catch (error) {
@@ -934,7 +1238,15 @@ export const generateTestReport = async (req, res) => {
     testRequest.clinicalInterpretation = clinicalInterpretation;
     testRequest.reportGeneratedBy = req.user.id || req.user._id;
     testRequest.reportGeneratedByName = req.user.staffName || req.user.name;
-    testRequest.status = 'Report_Generated';
+    
+    // Check if this test was completed via direct upload - if so, don't change status
+    if (testRequest.directUploadCompleted && testRequest.status === 'Completed') {
+      console.log('⚠️ Test was completed via direct upload - keeping status as Completed');
+      // Don't change the status, just update the report generation information
+    } else {
+      testRequest.status = 'Report_Generated'; // Only change status if not completed via direct upload
+      console.log('✅ Status updated to Report_Generated for traditional workflow');
+    }
     
     await testRequest.save();
     
@@ -953,6 +1265,13 @@ export const generateTestReport = async (req, res) => {
 export const sendReportToDoctor = async (req, res) => {
   try {
     const { id } = req.params;
+    
+    console.log('🚀 sendReportToDoctor called with:', {
+      testRequestId: id,
+      requestBody: req.body,
+      user: req.user?.username || req.user?.id,
+      userRole: req.user?.role
+    });
     const {
       sendMethod,
       emailSubject,
@@ -973,6 +1292,34 @@ export const sendReportToDoctor = async (req, res) => {
       return res.status(404).json({ message: 'Test request not found' });
     }
 
+    // Check if the test request is in the correct status for sending report
+    if (testRequest.status !== 'Report_Generated') {
+      return res.status(400).json({
+        message: 'Cannot send report. Test request must be in "Report Generated" status.',
+        currentStatus: testRequest.status,
+        requiredStatus: 'Report_Generated'
+      });
+    }
+
+    // Check if report file exists
+    if (!testRequest.reportFile && !testRequest.reportFilePath) {
+      return res.status(400).json({
+        message: 'Cannot send report. No report file found.',
+        reportFile: testRequest.reportFile,
+        reportFilePath: testRequest.reportFilePath
+      });
+    }
+
+    console.log('📋 Test request before sending report:', {
+      id: testRequest._id,
+      status: testRequest.status,
+      workflowStage: testRequest.workflowStage,
+      reportFile: testRequest.reportFile,
+      reportFilePath: testRequest.reportFilePath,
+      doctorEmail: testRequest.doctorId?.email,
+      doctorName: testRequest.doctorId?.name
+    });
+
     // Get doctor email from populated doctorId
     const doctorEmail = testRequest.doctorId?.email || testRequest.doctorEmail;
     const doctorName = testRequest.doctorId?.name || testRequest.doctorName;
@@ -987,7 +1334,11 @@ export const sendReportToDoctor = async (req, res) => {
     testRequest.notificationMessage = notificationMessage;
     testRequest.sentTo = sentTo || doctorName;
     testRequest.deliveryConfirmation = deliveryConfirmation;
-    testRequest.status = 'Report_Sent'; // Changed from 'Completed' to 'Report_Sent'
+    // Update status to Report_Sent when sending the report
+    testRequest.status = 'Report_Sent';
+    testRequest.workflowStage = 'completed'; // Mark workflow as completed when report is sent
+    console.log('✅ Status updated to Report_Sent and workflow to completed');
+    
     testRequest.updatedAt = new Date();
 
     const updatedTestRequest = await testRequest.save();
@@ -997,6 +1348,33 @@ export const sendReportToDoctor = async (req, res) => {
       .populate('patientId', 'name phone address age gender')
       .populate('assignedLabStaffId', 'staffName phone')
       .populate('reportGeneratedBy', 'staffName');
+
+    // ✅ NEW: Send notification to doctor when report is sent
+    try {
+      const Notification = (await import('../models/Notification.js')).default;
+      const notification = new Notification({
+        recipient: testRequest.doctorId,
+        sender: req.user.id || req.user._id,
+        type: 'test_request',
+        title: 'Lab Report Sent',
+        message: `Lab report has been sent to you for ${testRequest.patientName || testRequest.patientId?.name || 'Unknown Patient'} - ${testRequest.testType || 'Unknown Test'}. Sent via ${sendMethod}.`,
+        data: {
+          testRequestId: testRequest._id,
+          patientId: testRequest.patientId,
+          patientName: testRequest.patientName || testRequest.patientId?.name || 'Unknown Patient',
+          testType: testRequest.testType || 'Unknown Test',
+          status: 'Report_Sent',
+          sendMethod: sendMethod,
+          sentBy: req.user.staffName || req.user.name,
+          sentDate: testRequest.reportSentDate
+        },
+        read: false
+      });
+      await notification.save();
+      console.log('✅ Notification sent to doctor about report delivery');
+    } catch (notificationError) {
+      console.error('⚠️ Error sending notification to doctor:', notificationError);
+    }
 
     // Log the report sending for debugging
     console.log('Report sent successfully:', {
@@ -1267,8 +1645,10 @@ export const downloadTestReport = async (req, res) => {
     
     // Check each possible path
     for (const testPath of possiblePaths) {
+      console.log(`Checking path: ${testPath}`);
       if (fs.existsSync(testPath)) {
         fullPath = testPath;
+        console.log(`Found file at: ${fullPath}`);
         break;
       }
     }
@@ -1276,15 +1656,33 @@ export const downloadTestReport = async (req, res) => {
     if (!fullPath) {
       console.error(`Report file not found on server. Tried paths:`, possiblePaths);
       console.error(`Test request ID: ${id}, Status: ${testRequest.status}, Report path: ${reportFilePath}`);
+      console.error(`Current working directory: ${process.cwd()}`);
+      console.error(`__dirname: ${__dirname}`);
       
       return res.status(404).json({ 
         message: 'Report file not found on server',
         suggestion: 'The report file may have been moved or deleted. Please contact the lab staff.',
         filePath: reportFilePath,
         currentStatus: testRequest.status,
-        attemptedPaths: possiblePaths
+        attemptedPaths: possiblePaths,
+        debug: {
+          cwd: process.cwd(),
+          dirname: __dirname
+        }
       });
     }
+
+    // Validate file size and type
+    const stats = fs.statSync(fullPath);
+    if (stats.size === 0) {
+      console.error(`PDF file is empty: ${fullPath}`);
+      return res.status(500).json({ 
+        message: 'PDF file is empty or corrupted',
+        suggestion: 'Please contact the lab staff to regenerate the report.'
+      });
+    }
+    
+    console.log(`File size: ${stats.size} bytes, File path: ${fullPath}`);
 
     // Set proper headers for PDF
     res.setHeader('Content-Type', 'application/pdf');
@@ -1292,6 +1690,7 @@ export const downloadTestReport = async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
+    res.setHeader('Content-Length', stats.size);
 
     // Stream the PDF file
     const readStream = fs.createReadStream(fullPath);
@@ -1314,33 +1713,31 @@ export const downloadTestReport = async (req, res) => {
 
 // ===================== Billing Workflow (Receptionist) =====================
 
-// ✅ REAL DATA: Fetch billing-related test requests for current receptionist's center
+// ✅ REAL DATA: Fetch all test requests for current receptionist's center (complete workflow)
 export const getBillingRequestsForCurrentReceptionist = async (req, res) => {
   try {
     console.log('🚀 getBillingRequestsForCurrentReceptionist called (REAL DATA)');
     
-    // For receptionists, we'll work with embedded data to avoid permission issues
-    // Receptionists can see billing requests from their center without needing to populate sensitive patient data
+    // For receptionists, we'll show all test requests from their center to see the complete workflow
+    // This includes billing, lab processing, and completed requests
     
-    const billingStatuses = ['Billing_Pending', 'Billing_Generated', 'Billing_Paid'];
     let query = {
-      status: { $in: billingStatuses },
       isActive: true
     };
     
-    // If receptionist has a centerId, filter by center; otherwise show all billing requests
+    // If receptionist has a centerId, filter by center; otherwise show all requests
     if (req.user?.centerId) {
       query.centerId = req.user.centerId;
     }
     
     const testRequests = await TestRequest.find(query)
-      .select('testType testDescription status urgency notes centerId centerName centerCode doctorName patientName patientPhone patientAddress billing createdAt updatedAt')
+      .select('testType testDescription status urgency notes centerId centerName centerCode doctorName patientName patientPhone patientAddress billing createdAt updatedAt workflowStage')
       .populate('doctorId', 'name email phone')
       .populate('patientId', 'name phone address age gender')
       .sort({ createdAt: -1 })
       .lean(); // Use lean() for better performance
 
-    console.log(`✅ Found ${testRequests.length} real billing requests for receptionist`);
+    console.log(`✅ Found ${testRequests.length} test requests for receptionist (complete workflow)`);
 
     res.status(200).json(testRequests);
   } catch (error) {
@@ -1349,387 +1746,9 @@ export const getBillingRequestsForCurrentReceptionist = async (req, res) => {
   }
 };
 
-// ✅ REAL DATA: Generate bill for a test request (Receptionist action)
-export const generateBillForTestRequest = async (req, res) => {
-  try {
-    console.log('🚀 generateBillForTestRequest called (REAL DATA) for test request:', req.params.id);
-    
-    const { id } = req.params;
-    const { items = [], taxes = 0, discounts = 0, currency = 'INR', notes } = req.body;
 
-    // Find the test request in database
-    const testRequest = await TestRequest.findById(id).select('patientName centerId centerName centerCode _id status');
-    if (!testRequest) {
-      return res.status(404).json({ message: 'Test request not found' });
-    }
 
-    // Check if bill already exists
-    if (testRequest.billing && testRequest.billing.status !== 'not_generated') {
-      return res.status(400).json({ message: 'Bill already generated for this test request' });
-    }
 
-    // Compute totals
-    const itemsWithTotals = items.map((it) => ({
-      name: it.name,
-      code: it.code,
-      quantity: Number(it.quantity || 1),
-      unitPrice: Number(it.unitPrice || 0),
-      total: Number(it.quantity || 1) * Number(it.unitPrice || 0)
-    }));
-    const subTotal = itemsWithTotals.reduce((sum, it) => sum + (it.total || 0), 0);
-    const totalAmount = Math.max(0, subTotal + Number(taxes || 0) - Number(discounts || 0));
 
-    // Generate a simple invoice number
-    const prefix = testRequest.centerCode || testRequest.centerId?.code || 'INV';
-    const invoiceNumber = `${prefix}-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}-${String(testRequest._id).slice(-5)}`;
 
-    // Update test request with billing information
-    testRequest.billing = {
-      status: 'generated',
-      amount: totalAmount,
-      currency,
-      items: itemsWithTotals,
-      taxes: Number(taxes || 0),
-      discounts: Number(discounts || 0),
-      invoiceNumber,
-      generatedAt: new Date(),
-      generatedBy: req.user.id || req.user._id,
-      notes
-    };
-    testRequest.status = 'Billing_Generated';
-    testRequest.workflowStage = 'billing';
-    testRequest.updatedAt = new Date();
 
-    // Save to database
-    const updated = await testRequest.save();
-
-    // Notify stakeholders
-    try {
-      const Notification = (await import('../models/Notification.js')).default;
-      const UserModel = (await import('../models/User.js')).default;
-
-      const recipients = await UserModel.find({
-        $or: [
-          { _id: testRequest.doctorId },
-          { role: 'centeradmin', centerId: testRequest.centerId },
-          { role: 'superadmin', isSuperAdminStaff: true }
-        ],
-        isDeleted: { $ne: true }
-      });
-
-      for (const r of recipients) {
-        const n = new Notification({
-          recipient: r._id,
-          sender: req.user.id || req.user._id,
-          type: 'test_request',
-          title: 'Bill Generated',
-          message: `Invoice ${invoiceNumber} generated for ${testRequest.patientName} - ${testRequest.testType}`,
-          data: { testRequestId: testRequest._id, invoiceNumber, amount: totalAmount, status: 'Billing_Generated' },
-          read: false
-        });
-        await n.save();
-      }
-    } catch (notifyErr) {
-      console.error('Billing generation notification error:', notifyErr);
-    }
-
-    console.log('✅ Bill generated successfully (REAL DATA)');
-
-    res.status(200).json({ 
-      message: 'Bill generated successfully', 
-      testRequest: updated 
-    });
-  } catch (error) {
-    console.error('Error in real bill generation:', error);
-    res.status(500).json({ message: 'Failed to generate bill' });
-  }
-};
-
-// ✅ REAL DATA: Mark bill as paid (Receptionist action)
-export const markBillPaidForTestRequest = async (req, res) => {
-  try {
-    console.log('🚀 markBillPaidForTestRequest called (REAL DATA) for test request:', req.params.id);
-    
-    const { id } = req.params;
-    const { paymentNotes, paymentMethod, transactionId, receiptUpload } = req.body;
-
-    // Find the test request in database
-    const testRequest = await TestRequest.findById(id).select('patientName centerId centerName centerCode billing status');
-    if (!testRequest) {
-      return res.status(404).json({ message: 'Test request not found' });
-    }
-
-    // Check if bill exists and is generated
-    if (!testRequest.billing || testRequest.billing.status === 'not_generated') {
-      return res.status(400).json({ message: 'Generate bill before marking paid' });
-    }
-
-    // Enhanced payment verification
-    if (!paymentMethod || !transactionId) {
-      return res.status(400).json({ 
-        message: 'Payment method and transaction ID are required for verification' 
-      });
-    }
-
-    // Update billing with payment details
-    testRequest.billing.status = 'payment_received';
-    testRequest.billing.paymentMethod = paymentMethod;
-    testRequest.billing.transactionId = transactionId;
-    testRequest.billing.receiptUpload = receiptUpload;
-    testRequest.billing.paidAt = new Date();
-    testRequest.billing.paidBy = req.user.id || req.user._id;
-    testRequest.billing.verifiedBy = null; // Will be set by center admin
-    testRequest.billing.verifiedAt = null;
-    
-    if (paymentNotes) {
-      testRequest.billing.notes = [testRequest.billing.notes, paymentNotes].filter(Boolean).join('\n');
-    }
-    
-    // Status remains as 'Billing_Generated' until verified by center admin
-    testRequest.status = 'Billing_Generated';
-    testRequest.updatedAt = new Date();
-
-    // Save to database
-    const updated = await testRequest.save();
-
-    // Notify center admin for payment verification
-    try {
-      const Notification = (await import('../models/Notification.js')).default;
-      const UserModel = (await import('../models/User.js')).default;
-
-      const recipients = await UserModel.find({
-        $or: [
-          { _id: testRequest.doctorId },
-          { role: 'centeradmin', centerId: testRequest.centerId },
-          { role: 'superadmin', isSuperAdminStaff: true }
-        ],
-        isDeleted: { $ne: true }
-      });
-
-      for (const r of recipients) {
-        const n = new Notification({
-          recipient: r._id,
-          sender: req.user.id || req.user._id,
-          type: 'test_request',
-          title: 'Payment Received - Awaiting Verification',
-          message: `Payment received for ${testRequest.patientName} - ${testRequest.testType}. Center admin must verify before proceeding.`,
-          data: { testRequestId: testRequest._id, status: 'Billing_Generated', billingStatus: 'payment_received' },
-          read: false
-        });
-        await n.save();
-      }
-    } catch (notifyErr) {
-      console.error('Billing paid notification error:', notifyErr);
-    }
-
-    console.log('✅ Payment marked as received successfully (REAL DATA)');
-
-    res.status(200).json({ 
-      message: 'Payment received and recorded. Awaiting center admin verification before proceeding to lab.', 
-      testRequest: updated 
-    });
-  } catch (error) {
-    console.error('Error in real payment marking:', error);
-    res.status(500).json({ message: 'Failed to mark bill paid' });
-  }
-};
-
-// ✅ REAL DATA: Verify payment and approve for lab (Center Admin action)
-export const verifyPaymentAndApproveForLab = async (req, res) => {
-  try {
-    console.log('🚀 verifyPaymentAndApproveForLab called (REAL DATA) for test request:', req.params.id);
-    
-    const { id } = req.params;
-    const { verificationNotes } = req.body;
-
-    // Find the test request in database
-    const testRequest = await TestRequest.findById(id).select('patientName centerId centerName centerCode billing status workflowStage');
-    if (!testRequest) {
-      return res.status(404).json({ message: 'Test request not found' });
-    }
-
-    // Only center admin can verify payments
-    if (req.user.role !== 'centeradmin') {
-      return res.status(403).json({ message: 'Only center admin can verify payments' });
-    }
-
-    // Ensure center admin can only verify payments for their center
-    if (String(req.user.centerId) !== String(testRequest.centerId)) {
-      return res.status(403).json({ 
-        message: 'You can only verify payments for requests from your center',
-        debug: {
-          userCenterId: req.user.centerId,
-          testRequestCenterId: testRequest.centerId,
-          userRole: req.user.role,
-          username: req.user.username
-        }
-      });
-    }
-
-    // Check if payment was received and is awaiting verification
-    if (testRequest.billing?.status !== 'payment_received') {
-      return res.status(400).json({ 
-        message: 'Payment must be received before verification',
-        currentBillingStatus: testRequest.billing?.status || 'not_generated'
-      });
-    }
-
-    // Verify the payment
-    testRequest.billing.status = 'paid';
-    testRequest.billing.verifiedBy = req.user.id || req.user._id;
-    testRequest.billing.verifiedAt = new Date();
-    if (verificationNotes) {
-      testRequest.billing.verificationNotes = verificationNotes;
-    }
-    
-    // Update status to allow superadmin doctor approval
-    testRequest.status = 'Billing_Paid';
-    testRequest.workflowStage = 'superadmin_review';
-    testRequest.updatedAt = new Date();
-
-    // Save to database
-    const updated = await testRequest.save();
-
-    // Notify stakeholders that payment is verified and ready for lab
-    try {
-      const Notification = (await import('../models/Notification.js')).default;
-      const UserModel = (await import('../models/User.js')).default;
-      const LabStaffModel = (await import('../models/LabStaff.js')).default;
-
-      const recipients = await UserModel.find({
-        $or: [
-          { _id: testRequest.doctorId },
-          { role: 'superadmin', isSuperAdminStaff: true }
-        ],
-        isDeleted: { $ne: true }
-      });
-      const labStaff = await LabStaffModel.find({ isDeleted: { $ne: true } }).lean();
-
-      // Notify doctor and superadmin
-      for (const r of recipients) {
-        const n = new Notification({
-          recipient: r._id,
-          sender: req.user.id || req.user._id,
-          type: 'test_request',
-          title: 'Payment Verified - Ready for Lab',
-          message: `Payment verified for ${testRequest.patientName} - ${testRequest.testType}. Ready for superadmin doctor approval.`,
-          data: { testRequestId: testRequest._id, status: 'Billing_Paid', workflowStage: 'superadmin_review' },
-          read: false
-        });
-        await n.save();
-      }
-
-      // Notify lab staff that a verified request is available
-      for (const staff of labStaff) {
-        const n = new Notification({
-          recipient: staff._id,
-          sender: req.user.id || req.user._id,
-          type: 'test_request',
-          title: 'New Verified Test Request',
-          message: `Payment verified request ready: ${testRequest.patientName} - ${testRequest.testType}`,
-          data: { testRequestId: testRequest._id, status: 'Billing_Paid', workflowStage: 'superadmin_review' },
-          read: false
-        });
-        await n.save();
-      }
-    } catch (notifyErr) {
-      console.error('Payment verification notification error:', notifyErr);
-    }
-
-    console.log('✅ Payment verified successfully (REAL DATA)');
-
-    res.status(200).json({ 
-      message: 'Payment verified successfully. Test request is now ready for superadmin doctor approval and lab assignment.', 
-      testRequest: updated 
-    });
-  } catch (error) {
-    console.error('Error in real payment verification:', error);
-    res.status(500).json({ message: 'Failed to verify payment', error: error.message });
-  }
-};
-
-// ✅ REAL DATA: Get all billing data for superadmin (across all centers)
-export const getAllBillingData = async (req, res) => {
-  try {
-    console.log('🚀 getAllBillingData called by superadmin (REAL DATA)');
-    
-    // Get all test requests with billing information from database
-    const billingRequests = await TestRequest.find({ 
-      isActive: true,
-      $or: [
-        { billing: { $exists: true, $ne: null } },
-        { status: { $in: ['Billing_Pending', 'Billing_Generated', 'Billing_Paid'] } }
-      ]
-    })
-      .select('testType testDescription status urgency notes centerId centerName centerCode doctorId doctorName patientId patientName patientPhone patientAddress billing createdAt updatedAt')
-      .populate('doctorId', 'name email phone')
-      .populate('patientId', 'name phone address age gender')
-      .sort({ createdAt: -1 })
-      .lean(); // Use lean() for better performance
-
-    console.log(`✅ Found ${billingRequests.length} real billing requests for superadmin`);
-
-    res.status(200).json({
-      success: true,
-      billingRequests,
-      total: billingRequests.length
-    });
-  } catch (error) {
-    console.error('Error fetching real billing data:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Failed to fetch billing data', 
-      error: error.message 
-    });
-  }
-};
-
-// ✅ REAL DATA: Get billing data for specific center (center admin)
-export const getBillingDataForCenter = async (req, res) => {
-  try {
-    const { centerId } = req.params;
-    console.log('🚀 getBillingDataForCenter called for center (REAL DATA):', {
-      centerId,
-      username: req.user?.username,
-      role: req.user?.role
-    });
-    
-    if (!centerId) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Center ID is required' 
-      });
-    }
-
-    // Get test requests with billing information for specific center from database
-    const billingRequests = await TestRequest.find({ 
-      centerId: centerId,
-      isActive: true,
-      $or: [
-        { billing: { $exists: true, $ne: null } },
-        { status: { $in: ['Billing_Pending', 'Billing_Generated', 'Billing_Paid'] } }
-      ]
-    })
-      .select('testType testDescription status urgency notes centerId centerName centerCode doctorId doctorName patientId patientName patientPhone patientAddress billing createdAt updatedAt')
-      .populate('doctorId', 'name email phone')
-      .populate('patientId', 'name phone address age gender')
-      .sort({ createdAt: -1 })
-      .lean(); // Use lean() for better performance
-
-    console.log(`✅ Found ${billingRequests.length} real billing requests for center ${centerId}`);
-
-    res.status(200).json({
-      success: true,
-      billingRequests,
-      total: billingRequests.length,
-      centerId: centerId
-    });
-  } catch (error) {
-    console.error('Error fetching real center billing data:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Failed to fetch center billing data', 
-      error: error.message 
-    });
-  }
-};

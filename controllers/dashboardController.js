@@ -75,7 +75,7 @@ export const getDoctorStats = async (req, res) => {
       }),
       TestRequest.countDocuments({ 
         patientId: { $in: patientIds },
-        status: { $in: ['Completed', 'Report_Generated', 'Report_Sent', 'feedback_sent'] }
+        status: { $in: ['Completed', 'Report_Generated', 'Report_Sent'] }
       })
     ]);
 
@@ -108,7 +108,7 @@ export const getReceptionistStats = async (req, res) => {
       }),
       TestRequest.countDocuments({
         patientId: { $in: patientIds },
-        status: { $in: ['Completed', 'Report_Generated', 'Report_Sent', 'feedback_sent'] }
+        status: { $in: ['Completed', 'Report_Generated', 'Report_Sent'] }
       })
     ]);
 
@@ -135,7 +135,7 @@ export const getLabStats = async (req, res) => {
         status: { $in: ['Pending', 'Assigned', 'Sample_Collection_Scheduled', 'Sample_Collected', 'In_Lab_Testing'] }
       }),
       TestRequest.countDocuments({
-        status: { $in: ['Testing_Completed', 'Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'] }
+        status: { $in: ['Testing_Completed', 'Report_Generated', 'Report_Sent', 'Completed'] }
       }),
       TestRequest.countDocuments({
         priority: 'urgent',

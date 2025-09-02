@@ -2,7 +2,11 @@ import AllergicConjunctivitis from '../models/AllergicConjunctivitis.js';
 
 export const createAllergicConjunctivitis = async (req, res) => {
   try {
-    const record = await AllergicConjunctivitis.create(req.body);
+    const recordData = {
+      ...req.body,
+      updatedBy: req.user._id // Set the current user as the one who created/updated the record
+    };
+    const record = await AllergicConjunctivitis.create(recordData);
     res.status(201).json(record);
   } catch (err) {
     res.status(500).json({ message: 'Error creating allergic conjunctivitis record', error: err.message });
@@ -19,6 +23,7 @@ export const getAllergicConjunctivitisByPatient = async (req, res) => {
 
     const records = await AllergicConjunctivitis.find({ patientId })
       .populate('patientId', 'name age centerCode phone gender')
+      .populate('updatedBy', 'name role')
       .sort({ createdAt: -1 });
     
     res.json(records);

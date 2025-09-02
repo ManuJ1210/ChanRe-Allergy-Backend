@@ -5,9 +5,53 @@ export const createFollowUp = async (req, res) => {
   try {
     const { patientId, type, notes } = req.body;
     const updatedBy = req.user._id;
+    
     if (!patientId || !type) {
       return res.status(400).json({ message: 'patientId and type are required' });
     }
+
+    // Check if user is a doctor and apply 24-hour restriction
+    if (req.user.role === 'doctor') {
+      // Find the patient to check creation time
+      const patient = await Patient.findById(patientId);
+      if (!patient) {
+        return res.status(404).json({ message: 'Patient not found' });
+      }
+
+      // Check if patient was registered by this doctor
+      if (patient.registeredBy && patient.registeredBy.toString() !== updatedBy.toString()) {
+        return res.status(403).json({ 
+          message: 'You can only add followups to patients you registered' 
+        });
+      }
+
+      // Check if patient is assigned to this doctor
+      if (patient.assignedDoctor && patient.assignedDoctor.toString() !== updatedBy.toString()) {
+        return res.status(403).json({ 
+          message: 'You can only add followups to patients assigned to you' 
+        });
+      }
+
+      // Check 24-hour time restriction
+      if (patient.createdAt) {
+        const patientCreatedDate = new Date(patient.createdAt);
+        const currentDate = new Date();
+        
+        // Calculate time difference in milliseconds
+        const timeDifference = currentDate.getTime() - patientCreatedDate.getTime();
+        const hoursDifference = timeDifference / (1000 * 60 * 60); // Convert to hours
+        
+        // Check if it's within 24 hours
+        if (hoursDifference > 24) {
+          return res.status(403).json({ 
+            message: 'You can only add followups within 24 hours of patient registration',
+            hoursSinceCreation: Math.round(hoursDifference * 100) / 100,
+            patientCreatedAt: patient.createdAt
+          });
+        }
+      }
+    }
+
     const followUp = await FollowUp.create({ patientId, type, notes, updatedBy });
     res.status(201).json({ message: 'Follow up added', data: followUp });
   } catch (err) {

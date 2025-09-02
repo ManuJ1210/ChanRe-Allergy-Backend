@@ -42,7 +42,7 @@ const testRequestSchema = new mongoose.Schema({
   // Lab workflow fields
   status: {
     type: String,
-    enum: ['Pending', 'Billing_Pending', 'Billing_Generated', 'Billing_Paid', 'Superadmin_Review', 'Superadmin_Approved', 'Superadmin_Rejected', 'Assigned', 'Sample_Collection_Scheduled', 'Sample_Collected', 'In_Lab_Testing', 'Testing_Completed', 'Report_Generated', 'Report_Sent', 'Completed', 'Cancelled', 'feedback_sent'],
+    enum: ['Pending', 'Billing_Pending', 'Billing_Generated', 'Billing_Paid', 'Superadmin_Review', 'Superadmin_Approved', 'Superadmin_Rejected', 'Assigned', 'Sample_Collection_Scheduled', 'Sample_Collected', 'In_Lab_Testing', 'Testing_Completed', 'Report_Generated', 'Report_Sent', 'Completed', 'Cancelled'],
     default: 'Pending'
   },
   
@@ -223,6 +223,12 @@ const testRequestSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  
+  // Direct upload tracking
+  directUploadCompleted: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true

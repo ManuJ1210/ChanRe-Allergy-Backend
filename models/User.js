@@ -46,6 +46,10 @@ const userSchema = new mongoose.Schema({
   bio: { type: String, default: '' },
   status: { type: String, enum: ['active', 'inactive'], default: 'active' },
   isDeleted: { type: Boolean, default: false },
+  // Additional fields for receptionists
+  address: { type: String, default: '' },
+  emergencyContact: { type: String, default: '' },
+  emergencyContactName: { type: String, default: '' },
 }, { timestamps: true });
 
 userSchema.pre('save', async function (next) {

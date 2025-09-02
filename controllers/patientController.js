@@ -3,12 +3,6 @@ import Test from '../models/Test.js'; // Make sure this import is correct
 
 const addPatient = async (req, res) => {
   try {
-    console.log('🔍 addPatient called by user:', {
-      role: req.user?.role,
-      userId: req.user?._id,
-      userCenterId: req.user?.centerId
-    });
-    
     const {
       name,
       gender,
@@ -20,42 +14,30 @@ const addPatient = async (req, res) => {
       centerCode,
       centerId
     } = req.body;
-    
-    console.log('🔍 Request body:', { name, gender, age, contact, email, address, assignedDoctor, centerCode, centerId });
 
     // For receptionists, we'll be more flexible with centerId
     // If they have a centerId, use it; otherwise, try to get it from the request body
     let patientCenterId = req.user.centerId;
-    console.log('🔍 Initial patientCenterId from user:', patientCenterId);
     
     if (!patientCenterId) {
-      console.log('🔍 User has no centerId, trying alternatives...');
       // If user doesn't have centerId, try to get it from request body
       if (centerId) {
         patientCenterId = centerId;
-        console.log('🔍 Using centerId from request body:', patientCenterId);
       } else if (centerCode) {
-        console.log('🔍 Trying to find center by code:', centerCode);
         // Try to find center by code if centerId is not provided
         try {
           const Center = (await import('../models/Center.js')).default;
           const center = await Center.findOne({ code: centerCode });
           if (center) {
             patientCenterId = center._id;
-            console.log('🔍 Found center by code:', center._id);
-          } else {
-            console.log('❌ No center found with code:', centerCode);
           }
         } catch (centerError) {
-          console.error('❌ Error finding center by code:', centerError);
+          console.error('Error finding center by code:', centerError);
         }
       }
     }
     
-    console.log('🔍 Final patientCenterId:', patientCenterId);
-    
     if (!patientCenterId) {
-      console.log('❌ No centerId available, returning error');
       return res.status(400).json({ 
         message: "Center ID is required. Please provide either centerId or centerCode in the request body, or ensure the user is assigned to a center.",
         debug: {
@@ -80,14 +62,12 @@ const addPatient = async (req, res) => {
       registeredBy: req.user._id
     };
 
-    console.log('🔍 Creating patient with data:', patientData);
     const newPatient = new Patient(patientData);
     const savedPatient = await newPatient.save();
     
-    console.log('✅ Patient created successfully:', savedPatient._id);
     res.status(201).json({ message: "Patient created successfully", patient: savedPatient });
   } catch (error) {
-    console.error("❌ Create patient error:", error);
+    console.error("Create patient error:", error);
     res.status(500).json({ message: "Failed to create patient", error: error.message });
   }
 };
@@ -116,6 +96,21 @@ const getPatients = async (req, res) => {
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ createdAt: -1 });
+
+    // Manually populate assignedDoctor if it's still a string
+    const User = (await import('../models/User.js')).default;
+    for (let patient of patients) {
+      if (patient.assignedDoctor && typeof patient.assignedDoctor === 'string') {
+        try {
+          const doctor = await User.findById(patient.assignedDoctor).select('name');
+          if (doctor) {
+            patient.assignedDoctor = doctor;
+          }
+        } catch (userError) {
+          console.log('❌ Error finding doctor for patient:', patient._id, userError.message);
+        }
+      }
+    }
 
     const total = await Patient.countDocuments(query);
 
@@ -163,23 +158,28 @@ const getPatients = async (req, res) => {
 
 const getPatientById = async (req, res) => {
   try {
-    console.log('🔍 getPatientById called with ID:', req.params.id);
+    console.log('🔍 getPatientById called for patient ID:', req.params.id);
     
     const patient = await Patient.findById(req.params.id)
       .populate('centerId', 'name code')
       .populate('assignedDoctor', 'name');
     
     if (!patient) {
-      console.log('❌ Patient not found with ID:', req.params.id);
+      console.log('❌ Patient not found for ID:', req.params.id);
       return res.status(404).json({ message: 'Patient not found' });
     }
     
-    console.log('✅ Patient found:', {
-      id: patient._id,
-      name: patient.name,
-      centerId: patient.centerId?._id,
-      centerName: patient.centerId?.name
-    });
+    console.log('✅ Patient found:', patient.name);
+    console.log('🔍 assignedDoctor before populate:', patient.assignedDoctor);
+    
+    // Check if assignedDoctor is populated correctly
+    if (patient.assignedDoctor) {
+      console.log('🔍 assignedDoctor type:', typeof patient.assignedDoctor);
+      console.log('🔍 assignedDoctor keys:', Object.keys(patient.assignedDoctor));
+      console.log('🔍 assignedDoctor name:', patient.assignedDoctor.name);
+    } else {
+      console.log('🔍 No assignedDoctor found');
+    }
     
     // Return the expected structure that the frontend expects
     const response = {
@@ -189,7 +189,24 @@ const getPatientById = async (req, res) => {
       tests: []
     };
     
-    console.log('📤 Sending response structure:', Object.keys(response));
+    console.log('🔍 Final response patient.assignedDoctor:', response.patient.assignedDoctor);
+    
+    // Verify if the assignedDoctor User exists
+    if (patient.assignedDoctor && typeof patient.assignedDoctor === 'string') {
+      try {
+        const User = (await import('../models/User.js')).default;
+        const doctor = await User.findById(patient.assignedDoctor).select('name');
+        console.log('🔍 Found doctor in User collection:', doctor);
+        if (doctor) {
+          // Manually populate the assignedDoctor field
+          response.patient.assignedDoctor = doctor;
+          console.log('🔍 Manually populated assignedDoctor:', response.patient.assignedDoctor);
+        }
+      } catch (userError) {
+        console.log('❌ Error finding doctor in User collection:', userError.message);
+      }
+    }
+    
     res.json(response);
   } catch (err) {
     console.error('❌ Error in getPatientById:', err);
@@ -199,15 +216,6 @@ const getPatientById = async (req, res) => {
 
 const updatePatient = async (req, res) => {
   try {
-    console.log('🔍 updatePatient called by user:', {
-      role: req.user?.role,
-      userId: req.user?._id,
-      userName: req.user?.name,
-      userCenterId: req.user?.centerId
-    });
-    
-    console.log('🔍 updatePatient request body:', req.body);
-    console.log('🔍 updatePatient patient ID:', req.params.id);
     
     const {
       name,
@@ -239,7 +247,7 @@ const updatePatient = async (req, res) => {
 
     await patient.save();
     
-    console.log('✅ Patient updated successfully by:', req.user?.role);
+
     res.json({ message: 'Patient updated successfully', patient });
   } catch (err) {
     console.error('❌ Update patient error:', err);
@@ -249,12 +257,6 @@ const updatePatient = async (req, res) => {
 
 const deletePatient = async (req, res) => {
   try {
-    console.log('🔍 deletePatient called by user:', {
-      role: req.user?.role,
-      userId: req.user?._id,
-      userName: req.user?.name,
-      userCenterId: req.user?.centerId
-    });
     
     const patient = await Patient.findById(req.params.id);
     
@@ -264,7 +266,7 @@ const deletePatient = async (req, res) => {
 
     await patient.deleteOne();
     
-    console.log('✅ Patient deleted successfully by:', req.user?.role);
+
     res.json({ message: 'Patient deleted successfully' });
   } catch (err) {
     console.error('❌ Delete patient error:', err);
@@ -282,17 +284,54 @@ const addTestToPatient = async (req, res) => {
       return res.status(404).json({ message: 'Patient not found' });
     }
 
-    const newTest = {
-      testType,
-      testDate: new Date(testDate),
-      results,
-      status: status || 'pending'
+
+
+    // Check if a test record for this date already exists
+    const testDateOnly = new Date(testDate).toDateString();
+    let existingTest = patient.tests.find(test => 
+      new Date(test.date).toDateString() === testDateOnly
+    );
+
+    if (!existingTest) {
+      // Create new test record for this date
+      existingTest = { date: new Date(testDate) };
+      patient.tests.push(existingTest);
+    }
+
+    // Map testType to the correct field in the embedded schema
+    const fieldMap = {
+      'CBC': 'CBC',
+      'Hb': 'Hb', 
+      'TC': 'TC',
+      'DC': 'DC',
+      'Neutrophils': 'Neutrophils',
+      'Eosinophil': 'Eosinophil',
+      'Lymphocytes': 'Lymphocytes',
+      'Monocytes': 'Monocytes',
+      'Platelets': 'Platelets',
+      'ESR': 'ESR',
+      'Serum Creatinine': 'SerumCreatinine',
+      'Serum IgE Levels': 'SerumIgELevels',
+      'C3, C4 Levels': 'C3C4Levels',
+      'ANA (IF)': 'ANA_IF',
+      'Urine Routine': 'UrineRoutine',
+      'Allergy Panel': 'AllergyPanel'
     };
 
-    patient.tests.push(newTest);
+    const mappedField = fieldMap[testType] || testType;
+    
+    // Set the test result on the correct field
+    if (mappedField && results) {
+      existingTest[mappedField] = results;
+              // Test mapped successfully
+      } else {
+        // Could not map testType
+      }
+
     await patient.save();
 
-    res.status(201).json({ message: 'Test added successfully', test: newTest });
+
+    res.status(201).json({ message: 'Test added successfully', test: existingTest });
   } catch (error) {
     console.error('Add test error:', error);
     res.status(500).json({ message: 'Failed to add test' });
@@ -319,29 +358,40 @@ const getTestsByPatient = async (req, res) => {
 
 const getPatientAndTests = async (req, res) => {
   try {
-    console.log('getPatientAndTests called with patient ID:', req.params.id);
+    console.log('🔬 getPatientAndTests called for patient ID:', req.params.id);
     
     const patient = await Patient.findById(req.params.id);
     if (!patient) {
-      console.log('Patient not found with ID:', req.params.id);
+      console.log('❌ Patient not found for ID:', req.params.id);
       return res.status(404).json({ message: "Patient not found" });
     }
 
-    console.log('Patient found:', patient._id);
+    console.log('✅ Patient found:', patient.name, 'Patient ID:', patient._id);
 
     // First try to get tests from Test collection
     let tests = [];
     try {
       tests = await Test.find({ patient: patient._id });
-      console.log('Found tests from Test collection:', tests.length);
+      console.log('🔬 Tests found in Test collection:', tests.length);
     } catch (error) {
-      console.log('No tests found in Test collection, checking embedded tests');
+      console.log('❌ Error fetching from Test collection:', error.message);
     }
 
     // If no tests in Test collection, use embedded tests from patient
     if (tests.length === 0 && patient.tests && patient.tests.length > 0) {
+      console.log('🔬 Using embedded tests from patient:', patient.tests.length);
       tests = patient.tests;
-      console.log('Using embedded tests from patient:', tests.length);
+    }
+
+    console.log('🔬 Final tests array length:', tests.length);
+    console.log('🔬 Tests data:', tests);
+    
+    // Debug individual test structure
+    if (tests.length > 0) {
+      console.log('🔬 First test structure:', tests[0]);
+      console.log('🔬 First test date:', tests[0].date);
+      console.log('🔬 First test CBC:', tests[0].CBC);
+      console.log('🔬 First test keys:', Object.keys(tests[0]));
     }
 
     // Return just the tests array to match frontend expectations
@@ -374,6 +424,21 @@ const getPatientsByDoctor = async (req, res) => {
       .populate('assignedDoctor', 'name')
       .select('name age gender phone email address centerId assignedDoctor');
     
+    // Manually populate assignedDoctor if it's still a string
+    const User = (await import('../models/User.js')).default;
+    for (let patient of patients) {
+      if (patient.assignedDoctor && typeof patient.assignedDoctor === 'string') {
+        try {
+          const doctor = await User.findById(patient.assignedDoctor).select('name');
+          if (doctor) {
+            patient.assignedDoctor = doctor;
+          }
+        } catch (userError) {
+          console.log('❌ Error finding doctor for patient:', patient._id, userError.message);
+        }
+      }
+    }
+    
     res.json(patients);
   } catch (err) {
     console.error('Get patients by doctor error:', err);
@@ -384,13 +449,11 @@ const getPatientsByDoctor = async (req, res) => {
 // Get patient history
 const getPatientHistory = async (req, res) => {
   try {
-    console.log('🔍 getPatientHistory called with ID:', req.params.id);
     const { id } = req.params;
     
     // First verify patient exists
     const patient = await Patient.findById(id);
     if (!patient) {
-      console.log('❌ Patient not found with ID:', id);
       return res.status(404).json({ message: 'Patient not found' });
     }
 
@@ -403,7 +466,6 @@ const getPatientHistory = async (req, res) => {
     
     // If no results, try with ObjectId
     if (histories.length === 0) {
-      console.log('No histories found with string patientId, trying ObjectId...');
       const mongoose = (await import('mongoose')).default;
       if (mongoose.Types.ObjectId.isValid(id)) {
         histories = await History.find({ 
@@ -412,14 +474,7 @@ const getPatientHistory = async (req, res) => {
       }
     }
     
-    console.log('✅ Found standalone history records:', histories.length);
-    console.log('History records:', histories.map(h => ({ 
-      id: h._id, 
-      patientId: h.patientId, 
-      hayFever: h.hayFever,
-      asthma: h.asthma,
-      createdAt: h.createdAt 
-    })));
+
     
     // Return the comprehensive history records (not the embedded patient.history)
     res.status(200).json(histories);
@@ -432,16 +487,13 @@ const getPatientHistory = async (req, res) => {
 // Get patient medications
 const getPatientMedications = async (req, res) => {
   try {
-    console.log('🔍 getPatientMedications called with ID:', req.params.id);
+
     const { id } = req.params;
     const patient = await Patient.findById(id);
 
     if (!patient) {
-      console.log('❌ Patient not found with ID:', id);
       return res.status(404).json({ message: 'Patient not found' });
     }
-
-    console.log('✅ Patient found, medications:', patient.medications);
     // Return just the medications array to match frontend expectations
     res.status(200).json(patient.medications || []);
   } catch (error) {
@@ -471,7 +523,7 @@ const getPatientFollowUps = async (req, res) => {
 // Test endpoint to verify backend is working
 const testEndpoint = async (req, res) => {
   try {
-    console.log('🧪 Test endpoint called');
+
     res.json({ 
       message: 'Backend is working!', 
       timestamp: new Date().toISOString(),
@@ -490,20 +542,13 @@ const testEndpoint = async (req, res) => {
 // Add sample data for testing (temporary function)
 const addSampleData = async (req, res) => {
   try {
-    console.log('🔍 addSampleData called with ID:', req.params.id);
+
     const { id } = req.params;
     const patient = await Patient.findById(id);
 
     if (!patient) {
-      console.log('❌ Patient not found with ID:', id);
       return res.status(404).json({ message: 'Patient not found' });
     }
-
-    console.log('✅ Patient found, current data:', {
-      history: patient.history,
-      medications: patient.medications,
-      followUps: patient.followUps
-    });
 
     // Add sample history
     if (!patient.history || patient.history.length === 0) {
@@ -519,7 +564,7 @@ const addSampleData = async (req, res) => {
           drugAllergy: 'Penicillin'
         }
       ];
-      console.log('✅ Added sample history');
+
     }
 
     // Add sample medications
@@ -534,7 +579,7 @@ const addSampleData = async (req, res) => {
           adverseEvent: 'None'
         }
       ];
-      console.log('✅ Added sample medications');
+
     }
 
     // Add sample follow-ups
@@ -546,11 +591,44 @@ const addSampleData = async (req, res) => {
           notes: 'Patient responding well to treatment'
         }
       ];
-      console.log('✅ Added sample follow-ups');
+
     }
 
+    // Add sample tests
+    const sampleTest = new Test({
+      patient: patient._id,
+      CBC: 'Normal',
+      Hb: '14.2 g/dL',
+      TC: '7,500 cells/μL',
+      DC: 'Normal',
+      Neutrophils: '65%',
+      Eosinophil: '3%',
+      Lymphocytes: '25%',
+      Monocytes: '5%',
+      Platelets: '250,000/μL',
+      ESR: '15 mm/hr',
+      SerumCreatinine: '0.9 mg/dL',
+      SerumIgELevels: '150 IU/mL',
+      C3C4Levels: 'Normal',
+      ANA_IF: 'Negative',
+      UrineRoutine: 'Normal',
+      AllergyPanel: 'Positive for dust mites',
+      testType: 'Complete Blood Count',
+      status: 'completed',
+      date: new Date('2024-01-15'), // Explicit date for testing
+      requestedBy: req.user._id
+    });
+
+    console.log('🔬 Sample test object before save:', sampleTest);
+
+    await sampleTest.save();
+    console.log('✅ Sample test added for patient:', patient.name);
+    console.log('🔬 Sample test after save:', sampleTest);
+    console.log('🔬 Sample test date after save:', sampleTest.date);
+    console.log('🔬 Sample test CBC after save:', sampleTest.CBC);
+
     await patient.save();
-    console.log('✅ Patient saved with new data');
+
     res.json({ message: 'Sample data added successfully', patient });
   } catch (error) {
     console.error('❌ Add sample data error:', error);

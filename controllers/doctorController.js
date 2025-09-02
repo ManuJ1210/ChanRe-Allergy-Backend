@@ -377,6 +377,11 @@ export const getAssignedPatients = async (req, res) => {
         select: 'name code',
         model: 'Center'
       })
+      .populate({
+        path: 'assignedDoctor',
+        select: 'name email',
+        model: 'User'
+      })
       .select('-tests'); // Exclude tests array for performance
 
     console.log(`📋 Found ${patients.length} patients for doctor in center: ${req.user.centerId}`);
@@ -450,7 +455,8 @@ export const getPatientDetails = async (req, res) => {
       _id: patientId, 
       assignedDoctor: doctorId,
       centerId: req.user.centerId // Only patients from same center
-    }).populate('centerId', 'name code');
+    }).populate('centerId', 'name code')
+      .populate('assignedDoctor', 'name email');
 
     if (!patient) {
       return res.status(404).json({ message: 'Patient not found or not assigned to you' });
