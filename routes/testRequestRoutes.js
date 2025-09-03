@@ -81,6 +81,10 @@ router.get('/download-report/:id', protect, downloadTestReport);
 // Receptionist billing endpoints (must come before /:id to avoid route conflicts)
 router.get('/billing/mine', protect, getBillingRequestsForCurrentReceptionist);
 
+// Center Admin billing endpoints
+router.get('/billing/pending-verification', protect, ensureCenterIsolation, getBillingRequestsForCurrentReceptionist);
+router.get('/billing/center-admin-summary', protect, ensureCenterIsolation, getBillingRequestsForCurrentReceptionist);
+
 // Debug endpoint to test authentication
 router.get('/debug/auth', protect, (req, res) => {
   res.json({
