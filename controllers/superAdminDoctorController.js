@@ -466,9 +466,25 @@ export const getSuperAdminDoctorLabReports = async (req, res) => {
     const { page = 1, limit = 10, status, search } = req.query;
     const skip = (page - 1) * limit;
 
-    // Build query
+    // Debug: Check what statuses exist in the database
+    const allStatuses = await TestRequest.distinct('status');
+    console.log('🔍 All available statuses in database:', allStatuses);
+
+    // Build query - Show all test requests that have progressed beyond initial stages
     let query = {
-      status: { $in: ['Report_Generated', 'Report_Sent', 'Completed'] }
+      status: { 
+        $in: [
+          'Superadmin_Approved', 
+          'Assigned', 
+          'Sample_Collection_Scheduled', 
+          'Sample_Collected', 
+          'In_Lab_Testing', 
+          'Testing_Completed', 
+          'Report_Generated', 
+          'Report_Sent', 
+          'Completed'
+        ] 
+      }
     };
 
     if (status && status !== 'all') {
@@ -485,6 +501,10 @@ export const getSuperAdminDoctorLabReports = async (req, res) => {
 
     // Get total count
     const total = await TestRequest.countDocuments(query);
+    
+    // Debug: Log the query and total count
+    console.log('🔍 Lab Reports Query:', JSON.stringify(query, null, 2));
+    console.log('🔍 Total test requests found:', total);
 
     // Get lab reports with pagination
     const labReports = await TestRequest.find(query)
@@ -504,7 +524,9 @@ export const getSuperAdminDoctorLabReports = async (req, res) => {
       let frontendStatus = report.status;
       if (report.status === 'Completed') frontendStatus = 'completed';
       else if (report.status === 'Report_Generated' || report.status === 'Report_Sent') frontendStatus = 'pending_review';
-      else if (report.status === 'Completed') frontendStatus = 'completed';
+      else if (report.status === 'Testing_Completed') frontendStatus = 'pending_review';
+      else if (report.status === 'Sample_Collected' || report.status === 'In_Lab_Testing') frontendStatus = 'in_progress';
+      else if (report.status === 'Superadmin_Approved' || report.status === 'Assigned' || report.status === 'Sample_Collection_Scheduled') frontendStatus = 'approved';
       
       return {
         _id: report._id,

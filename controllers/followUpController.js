@@ -18,17 +18,13 @@ export const createFollowUp = async (req, res) => {
         return res.status(404).json({ message: 'Patient not found' });
       }
 
-      // Check if patient was registered by this doctor
-      if (patient.registeredBy && patient.registeredBy.toString() !== updatedBy.toString()) {
+      // Check if doctor is either the registered doctor OR the assigned doctor
+      const isRegisteredDoctor = patient.registeredBy && patient.registeredBy.toString() === updatedBy.toString();
+      const isAssignedDoctor = patient.assignedDoctor && patient.assignedDoctor.toString() === updatedBy.toString();
+      
+      if (!isRegisteredDoctor && !isAssignedDoctor) {
         return res.status(403).json({ 
-          message: 'You can only add followups to patients you registered' 
-        });
-      }
-
-      // Check if patient is assigned to this doctor
-      if (patient.assignedDoctor && patient.assignedDoctor.toString() !== updatedBy.toString()) {
-        return res.status(403).json({ 
-          message: 'You can only add followups to patients assigned to you' 
+          message: 'You can only add followups to patients you registered or are assigned to' 
         });
       }
 

@@ -37,5 +37,8 @@ router.get('/center', ensureCenterIsolation, getBillingDataForCenter);
 // Get all billing data for superadmin (across all centers)
 router.get('/all', checkSuperAdmin, getAllBillingData);
 
+// Download invoice PDF (alternative route for frontend compatibility) - must be last
+router.get('/:billingId/download-invoice', checkSuperAdmin, generateInvoicePDF);
+
 export default router;
 

@@ -162,7 +162,8 @@ const getPatientById = async (req, res) => {
     
     const patient = await Patient.findById(req.params.id)
       .populate('centerId', 'name code')
-      .populate('assignedDoctor', 'name');
+      .populate('assignedDoctor', 'name')
+      .populate('registeredBy', 'name');
     
     if (!patient) {
       console.log('❌ Patient not found for ID:', req.params.id);
@@ -171,14 +172,26 @@ const getPatientById = async (req, res) => {
     
     console.log('✅ Patient found:', patient.name);
     console.log('🔍 assignedDoctor before populate:', patient.assignedDoctor);
+    console.log('🔍 registeredBy before populate:', patient.registeredBy);
     
     // Check if assignedDoctor is populated correctly
     if (patient.assignedDoctor) {
       console.log('🔍 assignedDoctor type:', typeof patient.assignedDoctor);
       console.log('🔍 assignedDoctor keys:', Object.keys(patient.assignedDoctor));
       console.log('🔍 assignedDoctor name:', patient.assignedDoctor.name);
+      console.log('🔍 assignedDoctor _id:', patient.assignedDoctor._id);
     } else {
       console.log('🔍 No assignedDoctor found');
+    }
+    
+    // Check if registeredBy is populated correctly
+    if (patient.registeredBy) {
+      console.log('🔍 registeredBy type:', typeof patient.registeredBy);
+      console.log('🔍 registeredBy keys:', Object.keys(patient.registeredBy));
+      console.log('🔍 registeredBy name:', patient.registeredBy.name);
+      console.log('🔍 registeredBy _id:', patient.registeredBy._id);
+    } else {
+      console.log('🔍 No registeredBy found');
     }
     
     // Return the expected structure that the frontend expects
@@ -190,6 +203,7 @@ const getPatientById = async (req, res) => {
     };
     
     console.log('🔍 Final response patient.assignedDoctor:', response.patient.assignedDoctor);
+    console.log('🔍 Final response patient.registeredBy:', response.patient.registeredBy);
     
     // Verify if the assignedDoctor User exists
     if (patient.assignedDoctor && typeof patient.assignedDoctor === 'string') {
@@ -204,6 +218,22 @@ const getPatientById = async (req, res) => {
         }
       } catch (userError) {
         console.log('❌ Error finding doctor in User collection:', userError.message);
+      }
+    }
+    
+    // Verify if the registeredBy User exists
+    if (patient.registeredBy && typeof patient.registeredBy === 'string') {
+      try {
+        const User = (await import('../models/User.js')).default;
+        const registeredByUser = await User.findById(patient.registeredBy).select('name');
+        console.log('🔍 Found registeredBy user in User collection:', registeredByUser);
+        if (registeredByUser) {
+          // Manually populate the registeredBy field
+          response.patient.registeredBy = registeredByUser;
+          console.log('🔍 Manually populated registeredBy:', response.patient.registeredBy);
+        }
+      } catch (userError) {
+        console.log('❌ Error finding registeredBy user in User collection:', userError.message);
       }
     }
     

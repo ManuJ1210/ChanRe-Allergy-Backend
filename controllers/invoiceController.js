@@ -5,22 +5,45 @@ import path from 'path';
 // Generate PDF invoice
 export const generateInvoicePDF = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id, billingId } = req.params;
+    
+    // Use either id or billingId parameter
+    const testRequestId = id || billingId;
+    
+    console.log('🚀 generateInvoicePDF called with:', {
+      id,
+      billingId,
+      testRequestId,
+      params: req.params
+    });
+    
+    if (!testRequestId) {
+      return res.status(400).json({ message: 'Test request ID is required' });
+    }
     
     // Find the test request with billing information
     const TestRequest = (await import('../models/TestRequest.js')).default;
-    const testRequest = await TestRequest.findById(id)
+    const testRequest = await TestRequest.findById(testRequestId)
       .populate('patientId', 'name phone address age gender')
       .populate('doctorId', 'name')
       .populate('centerId', 'name code');
     
     if (!testRequest) {
+      console.log('❌ Test request not found:', testRequestId);
       return res.status(404).json({ message: 'Test request not found' });
     }
     
     if (!testRequest.billing) {
+      console.log('❌ No billing information found for test request:', testRequestId);
       return res.status(400).json({ message: 'No billing information found for this test request' });
     }
+    
+    console.log('✅ Generating PDF for test request:', {
+      testRequestId,
+      patientName: testRequest.patientName,
+      invoiceNumber: testRequest.billing.invoiceNumber,
+      amount: testRequest.billing.amount
+    });
     
     // Create PDF document
     const doc = new PDFDocument({ margin: 50 });
@@ -156,9 +179,11 @@ export const generateInvoicePDF = async (req, res) => {
     // Finalize PDF
     doc.end();
     
+    console.log('✅ PDF generated successfully for test request:', testRequestId);
+    
   } catch (error) {
-    console.error('Error generating invoice PDF:', error);
-    res.status(500).json({ message: 'Error generating invoice PDF' });
+    console.error('❌ Error generating invoice PDF:', error);
+    res.status(500).json({ message: 'Error generating invoice PDF', error: error.message });
   }
 };
 
