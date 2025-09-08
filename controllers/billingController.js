@@ -951,3 +951,931 @@ export const cancelBill = async (req, res) => {
     res.status(500).json({ message: 'Failed to cancel bill', error: error.message });
   }
 };
+
+// Get billing reports for superadmin (daily, weekly, monthly, yearly)
+export const getBillingReports = async (req, res) => {
+  try {
+    console.log('🚀 getBillingReports called');
+    
+    const { period, centerId, startDate, endDate } = req.query;
+    
+    console.log('📋 Report parameters:', {
+      period,
+      centerId,
+      startDate,
+      endDate
+    });
+
+    // Build date filter based on period
+    let dateFilter = {};
+    const now = new Date();
+    console.log('🔍 Current time:', now.toISOString());
+    
+    if (period === 'daily') {
+      const today = new Date(now);
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      console.log('🔍 Daily filter - Today:', today.toISOString(), 'Tomorrow:', tomorrow.toISOString());
+      dateFilter = {
+        $or: [
+          {
+            'billing.generatedAt': {
+              $gte: today,
+              $lt: tomorrow
+            }
+          },
+          {
+            createdAt: {
+              $gte: today,
+              $lt: tomorrow
+            }
+          }
+        ]
+      };
+      console.log('🔍 Daily dateFilter:', JSON.stringify(dateFilter, null, 2));
+    } else if (period === 'weekly') {
+      const weekAgo = new Date(now);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      weekAgo.setHours(0, 0, 0, 0);
+      console.log('🔍 Weekly filter - Week ago:', weekAgo.toISOString(), 'Now:', now.toISOString());
+      dateFilter = {
+        $or: [
+          {
+            'billing.generatedAt': {
+              $gte: weekAgo
+            }
+          },
+          {
+            createdAt: {
+              $gte: weekAgo
+            }
+          }
+        ]
+      };
+      console.log('🔍 Weekly dateFilter:', JSON.stringify(dateFilter, null, 2));
+    } else if (period === 'monthly') {
+      const monthAgo = new Date(now);
+      monthAgo.setDate(monthAgo.getDate() - 30); // Last 30 days instead of last month
+      monthAgo.setHours(0, 0, 0, 0);
+      dateFilter = {
+        $or: [
+          {
+            'billing.generatedAt': {
+              $gte: monthAgo
+            }
+          },
+          {
+            createdAt: {
+              $gte: monthAgo
+            }
+          }
+        ]
+      };
+    } else if (period === 'yearly') {
+      const yearAgo = new Date(now);
+      yearAgo.setDate(yearAgo.getDate() - 365); // Last 365 days instead of last year
+      yearAgo.setHours(0, 0, 0, 0);
+      dateFilter = {
+        $or: [
+          {
+            'billing.generatedAt': {
+              $gte: yearAgo
+            }
+          },
+          {
+            createdAt: {
+              $gte: yearAgo
+            }
+          }
+        ]
+      };
+    } else if (startDate && endDate) {
+      // Custom date range
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      
+      dateFilter = {
+        $or: [
+          {
+            'billing.generatedAt': {
+              $gte: start,
+              $lte: end
+            }
+          },
+          {
+            createdAt: {
+              $gte: start,
+              $lte: end
+            }
+          }
+        ]
+      };
+    }
+
+    // Build query
+    let query = {
+      isActive: true,
+      billing: { $exists: true, $ne: null },
+      ...dateFilter
+    };
+
+    // Add center filter if specified
+    if (centerId && centerId !== 'all') {
+      query.centerId = centerId;
+    }
+
+    console.log('🔍 Query:', JSON.stringify(query, null, 2));
+    console.log('🔍 Date Filter:', JSON.stringify(dateFilter, null, 2));
+
+    // Get billing data with aggregation
+    const billingData = await TestRequest.aggregate([
+      { $match: query },
+      {
+        $lookup: {
+          from: 'centers',
+          localField: 'centerId',
+          foreignField: '_id',
+          as: 'center'
+        }
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'doctorId',
+          foreignField: '_id',
+          as: 'doctor'
+        }
+      },
+      {
+        $lookup: {
+          from: 'patients',
+          localField: 'patientId',
+          foreignField: '_id',
+          as: 'patient'
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          patientName: 1,
+          testType: 1,
+          testDescription: 1,
+          urgency: 1,
+          status: 1,
+          centerId: 1,
+          centerName: 1,
+          centerCode: 1,
+          doctorId: 1,
+          doctorName: 1,
+          patientId: 1,
+          billing: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          'center.name': 1,
+          'center.code': 1,
+          'doctor.name': 1,
+          'doctor.email': 1,
+          'patient.name': 1,
+          'patient.phone': 1
+        }
+      },
+      { $sort: { 'billing.generatedAt': -1 } }
+    ]);
+
+    // Calculate statistics
+    const stats = {
+      totalBills: billingData.length,
+      totalAmount: 0,
+      paidBills: 0,
+      paidAmount: 0,
+      pendingBills: 0,
+      pendingAmount: 0,
+      generatedBills: 0,
+      generatedAmount: 0,
+      paymentReceivedBills: 0,
+      paymentReceivedAmount: 0,
+      cancelledBills: 0,
+      cancelledAmount: 0
+    };
+
+    // Group by center
+    const centerStats = {};
+    const dailyStats = {};
+    const monthlyStats = {};
+
+    billingData.forEach(item => {
+      const amount = item.billing?.amount || 0;
+      const status = item.billing?.status || 'not_generated';
+      const centerName = item.centerName || 'Unknown Center';
+      const generatedDate = item.billing?.generatedAt || item.createdAt;
+      
+      console.log('🔍 Processing item:', {
+        patientName: item.patientName,
+        amount: amount,
+        status: status,
+        generatedDate: generatedDate
+      });
+      
+      // Overall stats
+      stats.totalAmount += amount;
+      stats.totalBills++;
+      
+      // Only count as generated if billing exists
+      if (item.billing && item.billing.status) {
+        stats.generatedBills++;
+        stats.generatedAmount += amount;
+        
+        if (status === 'paid' || status === 'verified') {
+          stats.paidBills++;
+          stats.paidAmount += amount;
+        } else if (status === 'generated') {
+          stats.pendingBills++;
+          stats.pendingAmount += amount;
+        } else if (status === 'payment_received') {
+          stats.paymentReceivedBills++;
+          stats.paymentReceivedAmount += amount;
+        } else if (status === 'cancelled') {
+          stats.cancelledBills++;
+          stats.cancelledAmount += amount;
+        }
+      }
+
+      // Center stats
+      if (!centerStats[centerName]) {
+        centerStats[centerName] = {
+          centerId: item.centerId,
+          centerName: centerName,
+          totalBills: 0,
+          totalAmount: 0,
+          paidBills: 0,
+          paidAmount: 0,
+          pendingBills: 0,
+          pendingAmount: 0
+        };
+      }
+      
+      centerStats[centerName].totalBills++;
+      centerStats[centerName].totalAmount += amount;
+      
+      if (status === 'paid' || status === 'verified') {
+        centerStats[centerName].paidBills++;
+        centerStats[centerName].paidAmount += amount;
+      } else if (status === 'generated') {
+        centerStats[centerName].pendingBills++;
+        centerStats[centerName].pendingAmount += amount;
+      }
+
+      // Daily stats
+      if (generatedDate) {
+        const date = new Date(generatedDate).toISOString().split('T')[0];
+        if (!dailyStats[date]) {
+          dailyStats[date] = {
+            date: date,
+            totalBills: 0,
+            totalAmount: 0,
+            paidBills: 0,
+            paidAmount: 0
+          };
+        }
+        
+        dailyStats[date].totalBills++;
+        dailyStats[date].totalAmount += amount;
+        
+        if (status === 'paid' || status === 'verified') {
+          dailyStats[date].paidBills++;
+          dailyStats[date].paidAmount += amount;
+        }
+      }
+
+      // Monthly stats
+      if (generatedDate) {
+        const month = new Date(generatedDate).toISOString().substring(0, 7); // YYYY-MM
+        if (!monthlyStats[month]) {
+          monthlyStats[month] = {
+            month: month,
+            totalBills: 0,
+            totalAmount: 0,
+            paidBills: 0,
+            paidAmount: 0
+          };
+        }
+        
+        monthlyStats[month].totalBills++;
+        monthlyStats[month].totalAmount += amount;
+        
+        if (status === 'paid' || status === 'verified') {
+          monthlyStats[month].paidBills++;
+          monthlyStats[month].paidAmount += amount;
+        }
+      }
+    });
+
+    // Convert objects to arrays and sort
+    const centerStatsArray = Object.values(centerStats).sort((a, b) => b.totalAmount - a.totalAmount);
+    const dailyStatsArray = Object.values(dailyStats).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const monthlyStatsArray = Object.values(monthlyStats).sort((a, b) => a.month.localeCompare(b.month));
+
+    console.log(`✅ Generated billing report for period: ${period}, found ${billingData.length} bills`);
+    console.log('🔍 Final stats:', {
+      totalBills: stats.totalBills,
+      totalAmount: stats.totalAmount,
+      paidBills: stats.paidBills,
+      paidAmount: stats.paidAmount,
+      pendingBills: stats.pendingBills,
+      pendingAmount: stats.pendingAmount
+    });
+    
+    // Debug: Show sample data for different periods
+    if (billingData.length > 0) {
+      console.log('🔍 Sample billing data:', billingData.slice(0, 3).map(item => ({
+        patientName: item.patientName,
+        amount: item.billing?.amount,
+        status: item.billing?.status,
+        generatedAt: item.billing?.generatedAt,
+        createdAt: item.createdAt,
+        centerName: item.centerName
+      })));
+    } else {
+      console.log('🔍 No billing records found. Checking if there are any TestRequest records...');
+      // Check if there are any TestRequest records at all
+      const totalRecords = await TestRequest.countDocuments({ isActive: true });
+      console.log(`🔍 Total active TestRequest records: ${totalRecords}`);
+      
+      // Check if there are any with billing
+      const recordsWithBilling = await TestRequest.countDocuments({ 
+        isActive: true, 
+        billing: { $exists: true, $ne: null } 
+      });
+      console.log(`🔍 Records with billing: ${recordsWithBilling}`);
+      
+      // Check if there are any for the specific center
+      if (centerId && centerId !== 'all') {
+        const centerRecords = await TestRequest.countDocuments({ 
+          isActive: true, 
+          centerId: centerId 
+        });
+        console.log(`🔍 Records for center ${centerId}: ${centerRecords}`);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      period: period,
+      dateRange: {
+        startDate: startDate,
+        endDate: endDate
+      },
+      stats: stats,
+      centerStats: centerStatsArray,
+      dailyStats: dailyStatsArray,
+      monthlyStats: monthlyStatsArray,
+      billingData: billingData,
+      total: billingData.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error generating billing reports:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to generate billing reports',
+      error: error.message 
+    });
+  }
+};
+
+// Get billing statistics for superadmin
+export const getBillingStats = async (req, res) => {
+  try {
+    console.log('🚀 getBillingStats called');
+    
+    // Get all test requests with billing information
+    const billingRequests = await TestRequest.find({ 
+      isActive: true,
+      $or: [
+        { billing: { $exists: true, $ne: null } },
+        { status: { $in: ['Billing_Pending', 'Billing_Generated', 'Billing_Paid'] } }
+      ]
+    })
+      .select('billing status centerId centerName createdAt')
+      .lean();
+
+    // Calculate overall statistics
+    const stats = {
+      totalBills: 0,
+      totalAmount: 0,
+      paidBills: 0,
+      paidAmount: 0,
+      pendingBills: 0,
+      pendingAmount: 0,
+      generatedBills: 0,
+      generatedAmount: 0,
+      paymentReceivedBills: 0,
+      paymentReceivedAmount: 0,
+      cancelledBills: 0,
+      cancelledAmount: 0,
+      notGeneratedBills: 0
+    };
+
+    // Group by center
+    const centerStats = {};
+    const statusStats = {};
+    const monthlyStats = {};
+
+    billingRequests.forEach(item => {
+      const amount = item.billing?.amount || 0;
+      const status = item.billing?.status || 'not_generated';
+      const centerName = item.centerName || 'Unknown Center';
+      const generatedDate = item.billing?.generatedAt || item.createdAt;
+      
+      // Overall stats
+      stats.totalBills++;
+      stats.totalAmount += amount;
+      
+      if (status === 'paid' || status === 'verified') {
+        stats.paidBills++;
+        stats.paidAmount += amount;
+      } else if (status === 'generated') {
+        stats.pendingBills++;
+        stats.pendingAmount += amount;
+        stats.generatedBills++;
+        stats.generatedAmount += amount;
+      } else if (status === 'payment_received') {
+        stats.paymentReceivedBills++;
+        stats.paymentReceivedAmount += amount;
+        stats.generatedBills++;
+        stats.generatedAmount += amount;
+      } else if (status === 'cancelled') {
+        stats.cancelledBills++;
+        stats.cancelledAmount += amount;
+      } else if (status === 'not_generated') {
+        stats.notGeneratedBills++;
+      }
+
+      // Status stats
+      if (!statusStats[status]) {
+        statusStats[status] = {
+          status: status,
+          count: 0,
+          amount: 0
+        };
+      }
+      statusStats[status].count++;
+      statusStats[status].amount += amount;
+
+      // Center stats
+      if (!centerStats[centerName]) {
+        centerStats[centerName] = {
+          centerName: centerName,
+          centerId: item.centerId,
+          totalBills: 0,
+          totalAmount: 0,
+          paidBills: 0,
+          paidAmount: 0,
+          pendingBills: 0,
+          pendingAmount: 0
+        };
+      }
+      
+      centerStats[centerName].totalBills++;
+      centerStats[centerName].totalAmount += amount;
+      
+      if (status === 'paid' || status === 'verified') {
+        centerStats[centerName].paidBills++;
+        centerStats[centerName].paidAmount += amount;
+      } else if (status === 'generated') {
+        centerStats[centerName].pendingBills++;
+        centerStats[centerName].pendingAmount += amount;
+      }
+
+      // Monthly stats
+      if (generatedDate) {
+        const month = new Date(generatedDate).toISOString().substring(0, 7); // YYYY-MM
+        if (!monthlyStats[month]) {
+          monthlyStats[month] = {
+            month: month,
+            totalBills: 0,
+            totalAmount: 0,
+            paidBills: 0,
+            paidAmount: 0
+          };
+        }
+        
+        monthlyStats[month].totalBills++;
+        monthlyStats[month].totalAmount += amount;
+        
+        if (status === 'paid' || status === 'verified') {
+          monthlyStats[month].paidBills++;
+          monthlyStats[month].paidAmount += amount;
+        }
+      }
+    });
+
+    // Convert objects to arrays and sort
+    const centerStatsArray = Object.values(centerStats).sort((a, b) => b.totalAmount - a.totalAmount);
+    const statusStatsArray = Object.values(statusStats);
+    const monthlyStatsArray = Object.values(monthlyStats).sort((a, b) => a.month.localeCompare(b.month));
+
+    console.log(`✅ Generated billing stats: ${stats.totalBills} total bills, ${stats.totalAmount} total amount`);
+
+    res.status(200).json({
+      success: true,
+      stats: stats,
+      centerStats: centerStatsArray,
+      statusStats: statusStatsArray,
+      monthlyStats: monthlyStatsArray,
+      total: stats.totalBills
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching billing stats:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to fetch billing statistics',
+      error: error.message 
+    });
+  }
+};
+
+// Get billing reports for center admin
+export const getCenterBillingReports = async (req, res) => {
+  try {
+    console.log('🚀 getCenterBillingReports called for center:', req.user.centerId);
+    
+    const { period, startDate, endDate } = req.query;
+    const centerId = req.user.centerId;
+    
+    if (!centerId) {
+      return res.status(400).json({ message: 'Center ID is required' });
+    }
+
+    console.log('📋 Center report parameters:', {
+      period,
+      centerId,
+      startDate,
+      endDate
+    });
+
+    // Build date filter based on period
+    let dateFilter = {};
+    const now = new Date();
+    console.log('🔍 Center Current time:', now.toISOString());
+    
+    if (period === 'daily') {
+      const today = new Date(now);
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      console.log('🔍 Center Daily filter - Today:', today.toISOString(), 'Tomorrow:', tomorrow.toISOString());
+      dateFilter = {
+        $or: [
+          {
+            'billing.generatedAt': {
+              $gte: today,
+              $lt: tomorrow
+            }
+          },
+          {
+            $and: [
+              { 'billing.generatedAt': { $exists: false } },
+              {
+                createdAt: {
+                  $gte: today,
+                  $lt: tomorrow
+                }
+              }
+            ]
+          }
+        ]
+      };
+    } else if (period === 'weekly') {
+      const weekAgo = new Date(now);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      weekAgo.setHours(0, 0, 0, 0);
+      console.log('🔍 Center Weekly filter - Week ago:', weekAgo.toISOString(), 'Now:', now.toISOString());
+      dateFilter = {
+        $or: [
+          {
+            'billing.generatedAt': {
+              $gte: weekAgo
+            }
+          },
+          {
+            $and: [
+              { 'billing.generatedAt': { $exists: false } },
+              {
+                createdAt: {
+                  $gte: weekAgo
+                }
+              }
+            ]
+          }
+        ]
+      };
+    } else if (period === 'monthly') {
+      const monthAgo = new Date(now);
+      monthAgo.setDate(monthAgo.getDate() - 30); // Last 30 days instead of last month
+      monthAgo.setHours(0, 0, 0, 0);
+      dateFilter = {
+        $or: [
+          {
+            'billing.generatedAt': {
+              $gte: monthAgo
+            }
+          },
+          {
+            createdAt: {
+              $gte: monthAgo
+            }
+          }
+        ]
+      };
+    } else if (period === 'yearly') {
+      const yearAgo = new Date(now);
+      yearAgo.setDate(yearAgo.getDate() - 365); // Last 365 days instead of last year
+      yearAgo.setHours(0, 0, 0, 0);
+      dateFilter = {
+        $or: [
+          {
+            'billing.generatedAt': {
+              $gte: yearAgo
+            }
+          },
+          {
+            createdAt: {
+              $gte: yearAgo
+            }
+          }
+        ]
+      };
+    } else if (startDate && endDate) {
+      // Custom date range
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      
+      dateFilter = {
+        $or: [
+          {
+            'billing.generatedAt': {
+              $gte: start,
+              $lte: end
+            }
+          },
+          {
+            createdAt: {
+              $gte: start,
+              $lte: end
+            }
+          }
+        ]
+      };
+    }
+
+    // Build query for this center only
+    let query = {
+      centerId: centerId,
+      isActive: true,
+      billing: { $exists: true, $ne: null },
+      ...dateFilter
+    };
+
+    console.log('🔍 Center query:', JSON.stringify(query, null, 2));
+
+    // Get billing data with aggregation
+    const billingData = await TestRequest.aggregate([
+      { $match: query },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'doctorId',
+          foreignField: '_id',
+          as: 'doctor'
+        }
+      },
+      {
+        $lookup: {
+          from: 'patients',
+          localField: 'patientId',
+          foreignField: '_id',
+          as: 'patient'
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          patientName: 1,
+          testType: 1,
+          testDescription: 1,
+          urgency: 1,
+          status: 1,
+          centerId: 1,
+          centerName: 1,
+          centerCode: 1,
+          doctorId: 1,
+          doctorName: 1,
+          patientId: 1,
+          billing: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          'doctor.name': 1,
+          'doctor.email': 1,
+          'patient.name': 1,
+          'patient.phone': 1
+        }
+      },
+      { $sort: { 'billing.generatedAt': -1 } }
+    ]);
+
+    // Calculate statistics
+    const stats = {
+      totalBills: billingData.length,
+      totalAmount: 0,
+      paidBills: 0,
+      paidAmount: 0,
+      pendingBills: 0,
+      pendingAmount: 0,
+      generatedBills: 0,
+      generatedAmount: 0,
+      paymentReceivedBills: 0,
+      paymentReceivedAmount: 0,
+      cancelledBills: 0,
+      cancelledAmount: 0
+    };
+
+    // Group by doctor
+    const doctorStats = {};
+    const dailyStats = {};
+    const monthlyStats = {};
+
+    billingData.forEach(item => {
+      const amount = item.billing?.amount || 0;
+      const status = item.billing?.status || 'not_generated';
+      const doctorName = item.doctorName || 'Unknown Doctor';
+      const generatedDate = item.billing?.generatedAt || item.createdAt;
+      
+      // Overall stats
+      stats.totalAmount += amount;
+      stats.totalBills++;
+      
+      // Only count as generated if billing exists
+      if (item.billing && item.billing.status) {
+        stats.generatedBills++;
+        stats.generatedAmount += amount;
+        
+        if (status === 'paid' || status === 'verified') {
+          stats.paidBills++;
+          stats.paidAmount += amount;
+        } else if (status === 'generated') {
+          stats.pendingBills++;
+          stats.pendingAmount += amount;
+        } else if (status === 'payment_received') {
+          stats.paymentReceivedBills++;
+          stats.paymentReceivedAmount += amount;
+        } else if (status === 'cancelled') {
+          stats.cancelledBills++;
+          stats.cancelledAmount += amount;
+        }
+      }
+
+      // Doctor stats
+      if (!doctorStats[doctorName]) {
+        doctorStats[doctorName] = {
+          doctorId: item.doctorId,
+          doctorName: doctorName,
+          totalBills: 0,
+          totalAmount: 0,
+          paidBills: 0,
+          paidAmount: 0,
+          pendingBills: 0,
+          pendingAmount: 0
+        };
+      }
+      
+      doctorStats[doctorName].totalBills++;
+      doctorStats[doctorName].totalAmount += amount;
+      
+      if (status === 'paid' || status === 'verified') {
+        doctorStats[doctorName].paidBills++;
+        doctorStats[doctorName].paidAmount += amount;
+      } else if (status === 'generated') {
+        doctorStats[doctorName].pendingBills++;
+        doctorStats[doctorName].pendingAmount += amount;
+      }
+
+      // Daily stats
+      if (generatedDate) {
+        const date = new Date(generatedDate).toISOString().split('T')[0];
+        if (!dailyStats[date]) {
+          dailyStats[date] = {
+            date: date,
+            totalBills: 0,
+            totalAmount: 0,
+            paidBills: 0,
+            paidAmount: 0
+          };
+        }
+        
+        dailyStats[date].totalBills++;
+        dailyStats[date].totalAmount += amount;
+        
+        if (status === 'paid' || status === 'verified') {
+          dailyStats[date].paidBills++;
+          dailyStats[date].paidAmount += amount;
+        }
+      }
+
+      // Monthly stats
+      if (generatedDate) {
+        const month = new Date(generatedDate).toISOString().substring(0, 7); // YYYY-MM
+        if (!monthlyStats[month]) {
+          monthlyStats[month] = {
+            month: month,
+            totalBills: 0,
+            totalAmount: 0,
+            paidBills: 0,
+            paidAmount: 0
+          };
+        }
+        
+        monthlyStats[month].totalBills++;
+        monthlyStats[month].totalAmount += amount;
+        
+        if (status === 'paid' || status === 'verified') {
+          monthlyStats[month].paidBills++;
+          monthlyStats[month].paidAmount += amount;
+        }
+      }
+    });
+
+    // Convert objects to arrays and sort
+    const doctorStatsArray = Object.values(doctorStats).sort((a, b) => b.totalAmount - a.totalAmount);
+    const dailyStatsArray = Object.values(dailyStats).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const monthlyStatsArray = Object.values(monthlyStats).sort((a, b) => a.month.localeCompare(b.month));
+
+    console.log(`✅ Generated center billing report for period: ${period}, found ${billingData.length} bills`);
+    console.log('🔍 Center Final stats:', {
+      totalBills: stats.totalBills,
+      totalAmount: stats.totalAmount,
+      paidBills: stats.paidBills,
+      paidAmount: stats.paidAmount,
+      pendingBills: stats.pendingBills,
+      pendingAmount: stats.pendingAmount
+    });
+    
+    // Debug: Show sample data for different periods
+    if (billingData.length > 0) {
+      console.log('🔍 Center Sample billing data:', billingData.slice(0, 3).map(item => ({
+        patientName: item.patientName,
+        amount: item.billing?.amount,
+        status: item.billing?.status,
+        generatedAt: item.billing?.generatedAt,
+        createdAt: item.createdAt,
+        doctorName: item.doctorName
+      })));
+    } else {
+      console.log('🔍 Center: No billing records found. Checking if there are any TestRequest records...');
+      // Check if there are any TestRequest records at all for this center
+      const totalRecords = await TestRequest.countDocuments({ 
+        isActive: true, 
+        centerId: centerId 
+      });
+      console.log(`🔍 Center: Total active TestRequest records for center ${centerId}: ${totalRecords}`);
+      
+      // Check if there are any with billing for this center
+      const recordsWithBilling = await TestRequest.countDocuments({ 
+        isActive: true, 
+        centerId: centerId,
+        billing: { $exists: true, $ne: null } 
+      });
+      console.log(`🔍 Center: Records with billing for center ${centerId}: ${recordsWithBilling}`);
+    }
+
+    res.status(200).json({
+      success: true,
+      period: period,
+      centerId: centerId,
+      dateRange: {
+        startDate: startDate,
+        endDate: endDate
+      },
+      stats: stats,
+      doctorStats: doctorStatsArray,
+      dailyStats: dailyStatsArray,
+      monthlyStats: monthlyStatsArray,
+      billingData: billingData,
+      total: billingData.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error generating center billing reports:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to generate center billing reports',
+      error: error.message 
+    });
+  }
+};

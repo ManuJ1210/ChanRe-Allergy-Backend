@@ -7,7 +7,10 @@ import {
   getBillingInfo,
   getAllBillingData,
   getBillingDataForCenter,
-  cancelBill
+  cancelBill,
+  getBillingStats,
+  getBillingReports,
+  getCenterBillingReports
 } from '../controllers/billingController.js';
 import { generateInvoicePDF } from '../controllers/invoiceController.js';
 
@@ -36,6 +39,15 @@ router.get('/center', ensureCenterIsolation, getBillingDataForCenter);
 
 // Get all billing data for superadmin (across all centers)
 router.get('/all', checkSuperAdmin, getAllBillingData);
+
+// Get billing statistics for superadmin
+router.get('/stats', checkSuperAdmin, getBillingStats);
+
+// Get billing reports for superadmin (daily, weekly, monthly, yearly)
+router.get('/reports', checkSuperAdmin, getBillingReports);
+
+// Get billing reports for center admin
+router.get('/center/reports', ensureCenterIsolation, getCenterBillingReports);
 
 // Download invoice PDF (alternative route for frontend compatibility) - must be last
 router.get('/:billingId/download-invoice', checkSuperAdmin, generateInvoicePDF);
