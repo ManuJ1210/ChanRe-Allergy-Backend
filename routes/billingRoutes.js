@@ -10,7 +10,8 @@ import {
   cancelBill,
   getBillingStats,
   getBillingReports,
-  getCenterBillingReports
+  getCenterBillingReports,
+  testBillingData
 } from '../controllers/billingController.js';
 import { generateInvoicePDF } from '../controllers/invoiceController.js';
 
@@ -42,6 +43,9 @@ router.get('/all', checkSuperAdmin, getAllBillingData);
 
 // Get billing statistics for superadmin
 router.get('/stats', checkSuperAdmin, getBillingStats);
+
+// Test billing data endpoint
+router.get('/test-data', checkSuperAdmin, testBillingData);
 
 // Get billing reports for superadmin (daily, weekly, monthly, yearly)
 router.get('/reports', checkSuperAdmin, getBillingReports);

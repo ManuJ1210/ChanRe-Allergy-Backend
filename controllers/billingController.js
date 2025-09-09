@@ -952,6 +952,49 @@ export const cancelBill = async (req, res) => {
   }
 };
 
+// Test endpoint to check billing data
+export const testBillingData = async (req, res) => {
+  try {
+    console.log('🧪 Testing billing data...');
+    
+    // Check total count
+    const totalCount = await TestRequest.countDocuments({
+      isActive: true,
+      billing: { $exists: true, $ne: null }
+    });
+    
+    // Get sample data
+    const sampleData = await TestRequest.findOne({
+      isActive: true,
+      billing: { $exists: true, $ne: null }
+    }).select('centerId centerName billing.generatedAt createdAt billing.status billing.amount');
+    
+    // Get all centers with billing data
+    const centersWithData = await TestRequest.distinct('centerId', {
+      isActive: true,
+      billing: { $exists: true, $ne: null }
+    });
+    
+    // Get detailed center information
+    const centerDetails = await TestRequest.find({
+      isActive: true,
+      billing: { $exists: true, $ne: null }
+    }).select('centerId centerName').limit(10);
+    
+    res.json({
+      success: true,
+      totalCount,
+      sampleData,
+      centersWithData,
+      centerDetails,
+      message: 'Billing data test completed'
+    });
+  } catch (error) {
+    console.error('❌ Error testing billing data:', error);
+    res.status(500).json({ message: 'Failed to test billing data', error: error.message });
+  }
+};
+
 // Get billing reports for superadmin (daily, weekly, monthly, yearly)
 export const getBillingReports = async (req, res) => {
   try {
@@ -966,133 +1009,190 @@ export const getBillingReports = async (req, res) => {
       endDate
     });
 
+    // Build base query
+    let baseQuery = {
+      isActive: true,
+      billing: { $exists: true, $ne: null }
+    };
+
+    // Add center filter if specified
+    if (centerId && centerId !== 'all') {
+      try {
+        const mongoose = require('mongoose');
+        const centerObjectId = new mongoose.Types.ObjectId(centerId);
+        baseQuery.centerId = centerObjectId;
+        console.log('🔍 Center filter applied (ObjectId):', centerObjectId);
+        console.log('🔍 Original centerId:', centerId);
+        console.log('🔍 CenterId type:', typeof centerId);
+        console.log('🔍 CenterId length:', centerId.length);
+      } catch (error) {
+        console.log('🔍 Error converting centerId to ObjectId:', error.message);
+        // If conversion fails, don't apply center filter and log the error
+        console.log('🔍 Invalid centerId format, skipping center filter');
+        // Don't set baseQuery.centerId if conversion fails
+      }
+    }
+
     // Build date filter based on period
-    let dateFilter = {};
+    let dateQuery = {};
     const now = new Date();
-    console.log('🔍 Current time:', now.toISOString());
     
     if (period === 'daily') {
-      const today = new Date(now);
+      const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
-      console.log('🔍 Daily filter - Today:', today.toISOString(), 'Tomorrow:', tomorrow.toISOString());
-      dateFilter = {
+      
+      dateQuery = {
         $or: [
-          {
-            'billing.generatedAt': {
-              $gte: today,
-              $lt: tomorrow
-            }
-          },
-          {
-            createdAt: {
-              $gte: today,
-              $lt: tomorrow
-            }
-          }
+          { 'billing.generatedAt': { $gte: today, $lt: tomorrow } },
+          { createdAt: { $gte: today, $lt: tomorrow } }
         ]
       };
-      console.log('🔍 Daily dateFilter:', JSON.stringify(dateFilter, null, 2));
+      console.log('🔍 Daily filter applied:', { today: today.toISOString(), tomorrow: tomorrow.toISOString() });
+      
     } else if (period === 'weekly') {
       const weekAgo = new Date(now);
       weekAgo.setDate(weekAgo.getDate() - 7);
       weekAgo.setHours(0, 0, 0, 0);
-      console.log('🔍 Weekly filter - Week ago:', weekAgo.toISOString(), 'Now:', now.toISOString());
-      dateFilter = {
+      
+      dateQuery = {
         $or: [
-          {
-            'billing.generatedAt': {
-              $gte: weekAgo
-            }
-          },
-          {
-            createdAt: {
-              $gte: weekAgo
-            }
-          }
+          { 'billing.generatedAt': { $gte: weekAgo } },
+          { createdAt: { $gte: weekAgo } }
         ]
       };
-      console.log('🔍 Weekly dateFilter:', JSON.stringify(dateFilter, null, 2));
+      console.log('🔍 Weekly filter applied:', { weekAgo: weekAgo.toISOString(), now: now.toISOString() });
+      
     } else if (period === 'monthly') {
       const monthAgo = new Date(now);
-      monthAgo.setDate(monthAgo.getDate() - 30); // Last 30 days instead of last month
+      monthAgo.setDate(monthAgo.getDate() - 30);
       monthAgo.setHours(0, 0, 0, 0);
-      dateFilter = {
+      
+      dateQuery = {
         $or: [
-          {
-            'billing.generatedAt': {
-              $gte: monthAgo
-            }
-          },
-          {
-            createdAt: {
-              $gte: monthAgo
-            }
-          }
+          { 'billing.generatedAt': { $gte: monthAgo } },
+          { createdAt: { $gte: monthAgo } }
         ]
       };
+      console.log('🔍 Monthly filter applied:', { monthAgo: monthAgo.toISOString(), now: now.toISOString() });
+      
     } else if (period === 'yearly') {
       const yearAgo = new Date(now);
-      yearAgo.setDate(yearAgo.getDate() - 365); // Last 365 days instead of last year
+      yearAgo.setDate(yearAgo.getDate() - 365);
       yearAgo.setHours(0, 0, 0, 0);
-      dateFilter = {
+      
+      dateQuery = {
         $or: [
-          {
-            'billing.generatedAt': {
-              $gte: yearAgo
-            }
-          },
-          {
-            createdAt: {
-              $gte: yearAgo
-            }
-          }
+          { 'billing.generatedAt': { $gte: yearAgo } },
+          { createdAt: { $gte: yearAgo } }
         ]
       };
+      console.log('🔍 Yearly filter applied:', { yearAgo: yearAgo.toISOString(), now: now.toISOString() });
+      
     } else if (startDate && endDate) {
-      // Custom date range
       const start = new Date(startDate);
       start.setHours(0, 0, 0, 0);
       const end = new Date(endDate);
       end.setHours(23, 59, 59, 999);
       
-      dateFilter = {
+      dateQuery = {
         $or: [
-          {
-            'billing.generatedAt': {
-              $gte: start,
-              $lte: end
-            }
-          },
-          {
-            createdAt: {
-              $gte: start,
-              $lte: end
-            }
-          }
+          { 'billing.generatedAt': { $gte: start, $lte: end } },
+          { createdAt: { $gte: start, $lte: end } }
         ]
       };
+      console.log('🔍 Custom date range applied:', { start: start.toISOString(), end: end.toISOString() });
     }
 
-    // Build query
-    let query = {
-      isActive: true,
-      billing: { $exists: true, $ne: null },
-      ...dateFilter
+    // Combine base query with date query
+    let finalQuery = {
+      ...baseQuery,
+      ...dateQuery
     };
 
-    // Add center filter if specified
+    console.log('🔍 Final query:', JSON.stringify(finalQuery, null, 2));
+
+    // First, let's check if there's any data at all without filters
+    const totalCount = await TestRequest.countDocuments({
+      isActive: true,
+      billing: { $exists: true, $ne: null }
+    });
+    console.log('🔍 Total billing records in database (no filters):', totalCount);
+    
+    // Check what center IDs actually exist in the database
+    const existingCenterIds = await TestRequest.distinct('centerId', {
+      isActive: true,
+      billing: { $exists: true, $ne: null }
+    });
+    console.log('🔍 Existing center IDs in database:', existingCenterIds);
+    console.log('🔍 Looking for center ID:', centerId);
+    console.log('🔍 Center ID found in database:', existingCenterIds.includes(centerId));
+    
+    // Check if centerId exists as ObjectId
     if (centerId && centerId !== 'all') {
-      query.centerId = centerId;
+      try {
+        const mongoose = require('mongoose');
+        const centerObjectId = new mongoose.Types.ObjectId(centerId);
+        console.log('🔍 Center ID as ObjectId:', centerObjectId);
+        console.log('🔍 Center ID as ObjectId string:', centerObjectId.toString());
+        console.log('🔍 Center ID found as ObjectId:', existingCenterIds.some(id => id.toString() === centerObjectId.toString()));
+      } catch (error) {
+        console.log('🔍 Error creating ObjectId for comparison:', error.message);
+      }
     }
 
-    console.log('🔍 Query:', JSON.stringify(query, null, 2));
-    console.log('🔍 Date Filter:', JSON.stringify(dateFilter, null, 2));
+    // Check if there's data with just the center filter
+    if (centerId && centerId !== 'all') {
+      try {
+        const mongoose = require('mongoose');
+        const centerObjectId = new mongoose.Types.ObjectId(centerId);
+        const centerCount = await TestRequest.countDocuments({
+          isActive: true,
+          billing: { $exists: true, $ne: null },
+          centerId: centerObjectId
+        });
+        console.log('🔍 Records for center (ObjectId):', centerCount);
+        
+        // Also try with string
+        const centerCountString = await TestRequest.countDocuments({
+          isActive: true,
+          billing: { $exists: true, $ne: null },
+          centerId: centerId
+        });
+        console.log('🔍 Records for center (String):', centerCountString);
+        
+        // Try with both ObjectId and string in OR query
+        const centerCountOr = await TestRequest.countDocuments({
+          isActive: true,
+          billing: { $exists: true, $ne: null },
+          $or: [
+            { centerId: centerObjectId },
+            { centerId: centerId }
+          ]
+        });
+        console.log('🔍 Records for center (OR query):', centerCountOr);
+        
+        // Check what center IDs are actually in the billing data
+        const billingCenterIds = await TestRequest.distinct('centerId', {
+          isActive: true,
+          billing: { $exists: true, $ne: null }
+        });
+        console.log('🔍 All center IDs in billing data:', billingCenterIds.map(id => id.toString()));
+        console.log('🔍 Looking for center ID:', centerId);
+        console.log('🔍 Center ID as ObjectId:', centerObjectId.toString());
+        console.log('🔍 Center ID found in billing data:', billingCenterIds.some(id => id.toString() === centerId));
+        console.log('🔍 Center ID found as ObjectId in billing data:', billingCenterIds.some(id => id.toString() === centerObjectId.toString()));
+        
+      } catch (error) {
+        console.log('🔍 Error with center ObjectId:', error.message);
+      }
+    }
 
     // Get billing data with aggregation
-    const billingData = await TestRequest.aggregate([
-      { $match: query },
+    console.log('🔍 Executing main aggregation with query:', JSON.stringify(finalQuery, null, 2));
+    let billingData = await TestRequest.aggregate([
+      { $match: finalQuery },
       {
         $lookup: {
           from: 'centers',
@@ -1144,6 +1244,110 @@ export const getBillingReports = async (req, res) => {
       },
       { $sort: { 'billing.generatedAt': -1 } }
     ]);
+
+    console.log('🔍 Main aggregation result:', {
+      totalRecords: billingData.length,
+      centerId: centerId,
+      period: period,
+      sampleRecords: billingData.slice(0, 3).map(item => ({
+        id: item._id,
+        centerId: item.centerId,
+        centerName: item.centerName,
+        patientName: item.patientName,
+        amount: item.billing?.amount
+      }))
+    });
+
+    // If no data found and center filtering is applied, try with OR query
+    if (billingData.length === 0 && centerId && centerId !== 'all') {
+      console.log('🔍 No data found, trying with OR query for center ID...');
+      
+      try {
+        const mongoose = require('mongoose');
+        const centerObjectId = new mongoose.Types.ObjectId(centerId);
+        
+        const fallbackQuery = {
+          ...baseQuery,
+          ...dateQuery,
+          $or: [
+            { centerId: centerObjectId },
+            { centerId: centerId }
+          ]
+        };
+        
+        console.log('🔍 Fallback query (OR):', JSON.stringify(fallbackQuery, null, 2));
+        
+        billingData = await TestRequest.aggregate([
+        { $match: fallbackQuery },
+        {
+          $lookup: {
+            from: 'centers',
+            localField: 'centerId',
+            foreignField: '_id',
+            as: 'center'
+          }
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'doctorId',
+            foreignField: '_id',
+            as: 'doctor'
+          }
+        },
+        {
+          $lookup: {
+            from: 'patients',
+            localField: 'patientId',
+            foreignField: '_id',
+            as: 'patient'
+          }
+        },
+        {
+          $project: {
+            _id: 1,
+            patientName: 1,
+            testType: 1,
+            testDescription: 1,
+            urgency: 1,
+            status: 1,
+            centerId: 1,
+            centerName: 1,
+            centerCode: 1,
+            doctorId: 1,
+            doctorName: 1,
+            patientId: 1,
+            billing: 1,
+            createdAt: 1,
+            updatedAt: 1,
+            'center.name': 1,
+            'center.code': 1,
+            'doctor.name': 1,
+            'doctor.email': 1,
+            'patient.name': 1,
+            'patient.phone': 1
+          }
+        },
+        { $sort: { 'billing.generatedAt': -1 } }
+      ]);
+      
+        console.log('🔍 Fallback query result:', {
+          totalRecords: billingData.length,
+          centerId: centerId,
+          period: period,
+          sampleRecords: billingData.slice(0, 3).map(item => ({
+            id: item._id,
+            centerId: item.centerId,
+            centerName: item.centerName,
+            patientName: item.patientName,
+            amount: item.billing?.amount
+          }))
+        });
+      
+      } catch (error) {
+        console.log('🔍 Error in fallback query:', error.message);
+      }
+    }
 
     // Calculate statistics
     const stats = {
@@ -1278,7 +1482,7 @@ export const getBillingReports = async (req, res) => {
     const dailyStatsArray = Object.values(dailyStats).sort((a, b) => new Date(a.date) - new Date(b.date));
     const monthlyStatsArray = Object.values(monthlyStats).sort((a, b) => a.month.localeCompare(b.month));
 
-    console.log(`✅ Generated billing report for period: ${period}, found ${billingData.length} bills`);
+    console.log(`✅ Generated billing report for period: ${period}, center: ${centerId}, found ${billingData.length} bills`);
     console.log('🔍 Final stats:', {
       totalBills: stats.totalBills,
       totalAmount: stats.totalAmount,
@@ -1287,6 +1491,146 @@ export const getBillingReports = async (req, res) => {
       pendingBills: stats.pendingBills,
       pendingAmount: stats.pendingAmount
     });
+
+    // If no data found, try a simpler query to debug
+    if (billingData.length === 0) {
+      console.log('🔍 Trying simpler query to debug...');
+      
+      // Try without date filters
+      const simpleQuery = {
+        isActive: true,
+        billing: { $exists: true, $ne: null }
+      };
+      
+      if (centerId && centerId !== 'all') {
+        try {
+          const mongoose = require('mongoose');
+          simpleQuery.centerId = new mongoose.Types.ObjectId(centerId);
+        } catch (error) {
+          simpleQuery.centerId = centerId;
+        }
+      }
+      
+      const simpleCount = await TestRequest.countDocuments(simpleQuery);
+      console.log('🔍 Simple query count (no date filter):', simpleCount);
+      
+      if (simpleCount > 0) {
+        const sampleSimple = await TestRequest.findOne(simpleQuery).select('billing.generatedAt createdAt centerId centerName');
+        console.log('🔍 Sample from simple query:', sampleSimple);
+      }
+      
+      // Try with both ObjectId and string formats for center
+      if (centerId && centerId !== 'all') {
+        try {
+          const mongoose = require('mongoose');
+          const centerObjectId = new mongoose.Types.ObjectId(centerId);
+          
+          const objectIdCount = await TestRequest.countDocuments({
+            isActive: true,
+            billing: { $exists: true, $ne: null },
+            centerId: centerObjectId
+          });
+          
+          const stringCount = await TestRequest.countDocuments({
+            isActive: true,
+            billing: { $exists: true, $ne: null },
+            centerId: centerId
+          });
+          
+          console.log('🔍 Center count with ObjectId:', objectIdCount);
+          console.log('🔍 Center count with String:', stringCount);
+          
+          // Check what center IDs actually exist in the database
+          const existingCenterIds = await TestRequest.distinct('centerId', {
+            isActive: true,
+            billing: { $exists: true, $ne: null }
+          });
+          console.log('🔍 Existing center IDs in database:', existingCenterIds);
+          console.log('🔍 Looking for center ID:', centerId);
+          console.log('🔍 Center ID found in database:', existingCenterIds.includes(centerId));
+          
+        } catch (error) {
+          console.log('🔍 Error checking center formats:', error.message);
+        }
+      }
+    }
+
+    // Additional debugging for business critical data
+    if (billingData.length === 0) {
+      console.log('⚠️  WARNING: No billing data found for the selected filters');
+      console.log('🔍 Query used:', JSON.stringify(finalQuery, null, 2));
+      
+      // Check if there's any billing data at all
+      const totalBillingCount = await TestRequest.countDocuments({
+        isActive: true,
+        billing: { $exists: true, $ne: null }
+      });
+      console.log('🔍 Total billing records in database:', totalBillingCount);
+      
+      if (totalBillingCount > 0) {
+        const sampleRecord = await TestRequest.findOne({
+          isActive: true,
+          billing: { $exists: true, $ne: null }
+        }).select('centerId centerName billing.generatedAt createdAt billing.status billing.amount');
+        
+        console.log('🔍 Sample billing record:', sampleRecord);
+        
+        // Check what centers exist in the database
+        const centersInDB = await TestRequest.distinct('centerId', {
+          isActive: true,
+          billing: { $exists: true, $ne: null }
+        });
+        console.log('🔍 Centers with billing data:', centersInDB);
+        
+        // Check if the selected center has any data
+        if (centerId && centerId !== 'all') {
+          const centerDataCount = await TestRequest.countDocuments({
+            isActive: true,
+            billing: { $exists: true, $ne: null },
+            centerId: centerId
+          });
+          console.log('🔍 Records for selected center:', centerDataCount);
+          
+          // Try with ObjectId
+          try {
+            const mongoose = require('mongoose');
+            const centerObjectId = new mongoose.Types.ObjectId(centerId);
+            const centerDataCountObjectId = await TestRequest.countDocuments({
+              isActive: true,
+              billing: { $exists: true, $ne: null },
+              centerId: centerObjectId
+            });
+            console.log('🔍 Records for selected center (ObjectId):', centerDataCountObjectId);
+          } catch (error) {
+            console.log('🔍 Error checking with ObjectId:', error.message);
+          }
+        }
+        
+        // Check date ranges
+        const dateRangeCheck = await TestRequest.find({
+          isActive: true,
+          billing: { $exists: true, $ne: null }
+        }).limit(5).select('billing.generatedAt createdAt');
+        
+        console.log('🔍 Sample date ranges in database:', dateRangeCheck.map(doc => ({
+          generatedAt: doc.billing?.generatedAt,
+          createdAt: doc.createdAt,
+          generatedAtType: typeof doc.billing?.generatedAt,
+          createdAtType: typeof doc.createdAt
+        })));
+      }
+    }
+    
+    if (billingData.length > 0) {
+      console.log('🔍 Sample billing record centers:', billingData.slice(0, 3).map(item => ({
+        id: item._id,
+        centerId: item.centerId,
+        centerName: item.centerName,
+        generatedAt: item.billing?.generatedAt,
+        createdAt: item.createdAt,
+        status: item.billing?.status
+      })));
+    }
     
     // Debug: Show sample data for different periods
     if (billingData.length > 0) {
@@ -1531,23 +1875,8 @@ export const getCenterBillingReports = async (req, res) => {
       console.log('🔍 Center Daily filter - Today:', today.toISOString(), 'Tomorrow:', tomorrow.toISOString());
       dateFilter = {
         $or: [
-          {
-            'billing.generatedAt': {
-              $gte: today,
-              $lt: tomorrow
-            }
-          },
-          {
-            $and: [
-              { 'billing.generatedAt': { $exists: false } },
-              {
-                createdAt: {
-                  $gte: today,
-                  $lt: tomorrow
-                }
-              }
-            ]
-          }
+          { 'billing.generatedAt': { $gte: today, $lt: tomorrow } },
+          { createdAt: { $gte: today, $lt: tomorrow } }
         ]
       };
     } else if (period === 'weekly') {
@@ -1557,80 +1886,42 @@ export const getCenterBillingReports = async (req, res) => {
       console.log('🔍 Center Weekly filter - Week ago:', weekAgo.toISOString(), 'Now:', now.toISOString());
       dateFilter = {
         $or: [
-          {
-            'billing.generatedAt': {
-              $gte: weekAgo
-            }
-          },
-          {
-            $and: [
-              { 'billing.generatedAt': { $exists: false } },
-              {
-                createdAt: {
-                  $gte: weekAgo
-                }
-              }
-            ]
-          }
+          { 'billing.generatedAt': { $gte: weekAgo } },
+          { createdAt: { $gte: weekAgo } }
         ]
       };
     } else if (period === 'monthly') {
       const monthAgo = new Date(now);
-      monthAgo.setDate(monthAgo.getDate() - 30); // Last 30 days instead of last month
+      monthAgo.setDate(monthAgo.getDate() - 30);
       monthAgo.setHours(0, 0, 0, 0);
+      console.log('🔍 Center Monthly filter - Month ago:', monthAgo.toISOString(), 'Now:', now.toISOString());
       dateFilter = {
         $or: [
-          {
-            'billing.generatedAt': {
-              $gte: monthAgo
-            }
-          },
-          {
-            createdAt: {
-              $gte: monthAgo
-            }
-          }
+          { 'billing.generatedAt': { $gte: monthAgo } },
+          { createdAt: { $gte: monthAgo } }
         ]
       };
     } else if (period === 'yearly') {
       const yearAgo = new Date(now);
-      yearAgo.setDate(yearAgo.getDate() - 365); // Last 365 days instead of last year
+      yearAgo.setDate(yearAgo.getDate() - 365);
       yearAgo.setHours(0, 0, 0, 0);
+      console.log('🔍 Center Yearly filter - Year ago:', yearAgo.toISOString(), 'Now:', now.toISOString());
       dateFilter = {
         $or: [
-          {
-            'billing.generatedAt': {
-              $gte: yearAgo
-            }
-          },
-          {
-            createdAt: {
-              $gte: yearAgo
-            }
-          }
+          { 'billing.generatedAt': { $gte: yearAgo } },
+          { createdAt: { $gte: yearAgo } }
         ]
       };
     } else if (startDate && endDate) {
-      // Custom date range
       const start = new Date(startDate);
       start.setHours(0, 0, 0, 0);
       const end = new Date(endDate);
       end.setHours(23, 59, 59, 999);
-      
+      console.log('🔍 Center Custom date range - Start:', start.toISOString(), 'End:', end.toISOString());
       dateFilter = {
         $or: [
-          {
-            'billing.generatedAt': {
-              $gte: start,
-              $lte: end
-            }
-          },
-          {
-            createdAt: {
-              $gte: start,
-              $lte: end
-            }
-          }
+          { 'billing.generatedAt': { $gte: start, $lte: end } },
+          { createdAt: { $gte: start, $lte: end } }
         ]
       };
     }
