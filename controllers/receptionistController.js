@@ -64,6 +64,8 @@ export const createReceptionist = async (req, res) => {
 // Get all receptionists (Center-specific only)
 export const getAllReceptionists = async (req, res) => {
   try {
+    const { centerId } = req.query;
+    
     let query = { 
       role: 'receptionist',
       centerId: { $exists: true, $ne: null }, // Only receptionists with centerId (center-specific)
@@ -73,6 +75,14 @@ export const getAllReceptionists = async (req, res) => {
         { isSuperAdminStaff: { $ne: true } } // Or not true
       ]
     };
+
+    // For superadmin users, allow filtering by centerId query parameter
+    if (req.user.role === 'superadmin' && centerId) {
+      query.centerId = centerId;
+    } else if (req.user.role !== 'superadmin') {
+      // For other users, use their assigned centerId
+      query.centerId = req.user.centerId;
+    }
 
     // Handle status filtering
     if (req.query.status !== undefined && req.query.status !== '') {

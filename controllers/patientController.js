@@ -74,9 +74,17 @@ const addPatient = async (req, res) => {
 
 const getPatients = async (req, res) => {
   try {
-    const { page = 1, limit = 10, search = '', status = '' } = req.query;
+    const { page = 1, limit = 10, search = '', status = '', centerId } = req.query;
     
-    let query = { centerId: req.user.centerId };
+    let query = {};
+    
+    // For superadmin users, allow filtering by centerId query parameter
+    if (req.user.role === 'superadmin' && centerId) {
+      query.centerId = centerId;
+    } else {
+      // For other users, use their assigned centerId
+      query.centerId = req.user.centerId;
+    }
     
     if (search) {
       query.$or = [

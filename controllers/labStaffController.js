@@ -4,11 +4,36 @@ import bcrypt from 'bcryptjs';
 // Get all lab staff
 export const getAllLabStaff = async (req, res) => {
   try {
-    const labStaff = await LabStaff.find({ isActive: true })
+    const { centerId } = req.query;
+    
+    // Get lab staff from LabStaff model (centralized lab staff)
+    const centralizedLabStaff = await LabStaff.find({ isActive: true })
       .select('-password')
       .sort({ createdAt: -1 });
+
+    // Get lab staff from User model (center-specific lab staff)
+    const User = (await import('../models/User.js')).default;
+    let userLabStaffQuery = { role: 'lab' };
     
-    res.status(200).json(labStaff);
+    // For superadmin users, allow filtering by centerId query parameter
+    if (req.user.role === 'superadmin' && centerId) {
+      userLabStaffQuery.centerId = centerId;
+    } else if (req.user.role !== 'superadmin') {
+      // For other users, use their assigned centerId
+      userLabStaffQuery.centerId = req.user.centerId;
+    }
+
+    const centerLabStaff = await User.find(userLabStaffQuery)
+      .select('-password')
+      .sort({ createdAt: -1 });
+
+    // Combine both types of lab staff
+    const allLabStaff = [
+      ...centralizedLabStaff.map(staff => ({ ...staff.toObject(), type: 'centralized' })),
+      ...centerLabStaff.map(staff => ({ ...staff.toObject(), type: 'center', staffName: staff.name }))
+    ];
+    
+    res.status(200).json(allLabStaff);
   } catch (error) {
     console.error('Error fetching lab staff:', error);
     res.status(500).json({ message: 'Failed to fetch lab staff' });
