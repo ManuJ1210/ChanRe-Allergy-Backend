@@ -5,6 +5,9 @@ import Doctor from '../models/Docter.js';
 import LabStaff from '../models/LabStaff.js';
 import SuperAdminDoctor from '../models/SuperAdminDoctor.js';
 import SuperAdminReceptionist from '../models/SuperAdminReceptionist.js';
+import UserSession from '../models/UserSession.js';
+import LoginHistory from '../models/LoginHistory.js';
+import { parseDeviceInfo, getLocationInfo, generateSessionId, getClientIP } from '../utils/sessionUtils.js';
 
 const generateToken = (user, userType) => {
   const payload = {
@@ -155,6 +158,49 @@ export const login = async (req, res) => {
 
     // Generate token
     const token = generateToken(user, userType);
+
+    // Create session and login history for tracking
+    try {
+      const userAgent = req.headers['user-agent'] || '';
+      const clientIP = getClientIP(req);
+      
+      // Parse device information
+      const deviceInfo = parseDeviceInfo(userAgent);
+      
+      // Get location information
+      const locationInfo = await getLocationInfo(clientIP);
+      
+      // Generate unique session ID
+      const sessionId = generateSessionId();
+      
+      // Create session
+      await UserSession.create({
+        userId: user._id,
+        sessionId,
+        token,
+        deviceInfo,
+        locationInfo,
+        centerId: user.centerId || null,
+        userRole: user.role,
+        userType: userType
+      });
+      
+      // Create login history record
+      await LoginHistory.create({
+        userId: user._id,
+        centerId: user.centerId || null,
+        userRole: user.role,
+        userType: userType,
+        deviceInfo,
+        locationInfo,
+        loginStatus: 'success'
+      });
+      
+      console.log(`✅ Login recorded for ${user.name} (${user.role}) at ${new Date().toISOString()}`);
+    } catch (sessionError) {
+      console.error('Error creating session/login history:', sessionError);
+      // Don't block login if session creation fails
+    }
 
     // Prepare response based on user type
     let userData = {

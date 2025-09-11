@@ -33,7 +33,7 @@ import { protect, checkSuperAdmin } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Working routes (for superadmin doctors to perform their duties) - Only protect, no checkSuperAdmin
+// Working routes (for superadmin consultants to perform their duties) - Only protect, no checkSuperAdmin
 router.get('/working/patients', protect, getSuperAdminDoctorPatients);
 router.get('/working/assigned-patients', protect, getSuperAdminDoctorAssignedPatients);
 router.get('/working/patient/:patientId', protect, getSuperAdminDoctorPatientById);
@@ -51,12 +51,12 @@ router.post('/working/send-feedback', protect, sendFeedbackToCenterDoctor);
 // Test endpoint for debugging
 router.get('/working/test', protect, testFollowupAPI);
 
-// ✅ NEW: Test request review routes for superadmin doctors
+// ✅ NEW: Test request review routes for superadmin consultants
 router.get('/working/test-requests-for-review', protect, getTestRequestsForReview);
 router.post('/working/test-request/:testRequestId/review', protect, reviewTestRequest);
 router.get('/working/test-request-stats', protect, getTestRequestStats);
 
-// Management routes (for superadmin to manage superadmin doctors)
+// Management routes (for superadmin to manage superadmin consultants)
 router.use(protect);
 router.use(checkSuperAdmin);
 

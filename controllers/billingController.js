@@ -790,7 +790,7 @@ export const getAllBillingData = async (req, res) => {
       ]
     })
       .select('testType testDescription status urgency notes centerId centerName centerCode doctorId doctorName patientId patientName patientPhone patientAddress billing createdAt updatedAt')
-      .populate('doctorId', 'name email phone')
+      .populate('doctorId', 'name email phone specializations')
       .populate('patientId', 'name phone address age gender')
       .sort({ createdAt: -1 })
       .lean(); // Use lean() for better performance
@@ -832,7 +832,7 @@ export const getBillingDataForCenter = async (req, res) => {
       ]
     })
       .select('testType testDescription status urgency notes centerId centerName centerCode doctorId doctorName patientId patientName patientPhone patientAddress billing createdAt updatedAt')
-      .populate('doctorId', 'name email phone')
+      .populate('doctorId', 'name email phone specializations')
       .populate('patientId', 'name phone address age gender')
       .sort({ createdAt: -1 })
       .lean();
@@ -952,6 +952,222 @@ export const cancelBill = async (req, res) => {
   }
 };
 
+// Fix center data inconsistencies in billing records
+export const fixCenterData = async (req, res) => {
+  try {
+    console.log('🔧 Fixing center data inconsistencies...');
+    
+    const Center = (await import('../models/Center.js')).default;
+    
+    // Get all centers
+    const centers = await Center.find({}).select('_id centername name centerCode');
+    console.log('🔧 Found centers:', centers.map(c => ({
+      id: c._id,
+      name: c.centername || c.name,
+      code: c.centerCode
+    })));
+    
+    // Get all test requests with billing
+    const testRequests = await TestRequest.find({
+      isActive: true,
+      billing: { $exists: true, $ne: null }
+    }).select('centerId centerName centerCode');
+    
+    console.log('🔧 Found test requests with billing:', testRequests.length);
+    
+    let updatedCount = 0;
+    let reassignedCount = 0;
+    
+    for (const testRequest of testRequests) {
+      const currentCenter = centers.find(c => c._id.toString() === testRequest.centerId.toString());
+      const nameBasedCenter = centers.find(c => 
+        (c.centername || c.name) === testRequest.centerName
+      );
+      
+      if (currentCenter) {
+        // Center ID is correct, just fix name/code if needed
+        const correctCenterName = currentCenter.centername || currentCenter.name;
+        const correctCenterCode = currentCenter.centerCode;
+        
+        if (testRequest.centerName !== correctCenterName || testRequest.centerCode !== correctCenterCode) {
+          console.log('🔧 Updating center info for test request:', {
+            testRequestId: testRequest._id,
+            oldCenterName: testRequest.centerName,
+            newCenterName: correctCenterName,
+            oldCenterCode: testRequest.centerCode,
+            newCenterCode: correctCenterCode
+          });
+          
+          await TestRequest.updateOne(
+            { _id: testRequest._id },
+            { 
+              centerName: correctCenterName,
+              centerCode: correctCenterCode
+            }
+          );
+          
+          updatedCount++;
+        }
+      } else if (nameBasedCenter) {
+        // Center ID is wrong, but center name matches a real center - reassign
+        console.log('🔧 Reassigning test request to correct center:', {
+          testRequestId: testRequest._id,
+          oldCenterId: testRequest.centerId,
+          newCenterId: nameBasedCenter._id,
+          centerName: testRequest.centerName
+        });
+        
+        await TestRequest.updateOne(
+          { _id: testRequest._id },
+          { 
+            centerId: nameBasedCenter._id,
+            centerName: nameBasedCenter.centername || nameBasedCenter.name,
+            centerCode: nameBasedCenter.centerCode
+          }
+        );
+        
+        reassignedCount++;
+      } else {
+        console.log('⚠️ No matching center found for test request:', {
+          testRequestId: testRequest._id,
+          centerId: testRequest.centerId,
+          centerName: testRequest.centerName
+        });
+      }
+    }
+    
+    console.log(`✅ Fixed ${updatedCount} center names and reassigned ${reassignedCount} test requests`);
+    
+    res.json({
+      success: true,
+      message: `Fixed ${updatedCount} center names and reassigned ${reassignedCount} test requests`,
+      updatedCount,
+      reassignedCount,
+      totalCenters: centers.length,
+      totalTestRequests: testRequests.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fixing center data:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to fix center data',
+      error: error.message 
+    });
+  }
+};
+
+// Validate center data consistency
+export const validateCenterData = async (req, res) => {
+  try {
+    console.log('🔍 Validating center data consistency...');
+    
+    const Center = (await import('../models/Center.js')).default;
+    
+    // Get all centers
+    const centers = await Center.find({}).select('_id centername name centerCode');
+    console.log('🔍 Found centers:', centers.map(c => ({
+      id: c._id.toString(),
+      name: c.centername || c.name,
+      code: c.centerCode
+    })));
+    
+    // Get all test requests with billing
+    const testRequests = await TestRequest.find({
+      isActive: true,
+      billing: { $exists: true, $ne: null }
+    }).select('_id centerId centerName centerCode billing.status billing.amount');
+    
+    console.log('🔍 Found test requests with billing:', testRequests.length);
+    
+    const inconsistencies = [];
+    const centerStats = {};
+    
+    for (const testRequest of testRequests) {
+      const center = centers.find(c => c._id.toString() === testRequest.centerId.toString());
+      
+      if (!center) {
+        inconsistencies.push({
+          type: 'missing_center',
+          testRequestId: testRequest._id,
+          centerId: testRequest.centerId,
+          centerName: testRequest.centerName,
+          message: 'Center ID not found in centers collection'
+        });
+      } else {
+        const correctCenterName = center.centername || center.name;
+        const correctCenterCode = center.centerCode;
+        
+        if (testRequest.centerName !== correctCenterName) {
+          inconsistencies.push({
+            type: 'name_mismatch',
+            testRequestId: testRequest._id,
+            centerId: testRequest.centerId,
+            currentName: testRequest.centerName,
+            correctName: correctCenterName,
+            message: 'Center name mismatch'
+          });
+        }
+        
+        if (testRequest.centerCode !== correctCenterCode) {
+          inconsistencies.push({
+            type: 'code_mismatch',
+            testRequestId: testRequest._id,
+            centerId: testRequest.centerId,
+            currentCode: testRequest.centerCode,
+            correctCode: correctCenterCode,
+            message: 'Center code mismatch'
+          });
+        }
+        
+        // Count stats per center
+        const centerKey = correctCenterName;
+        if (!centerStats[centerKey]) {
+          centerStats[centerKey] = {
+            centerId: center._id.toString(),
+            centerName: correctCenterName,
+            centerCode: correctCenterCode,
+            totalBills: 0,
+            totalAmount: 0,
+            inconsistencies: 0
+          };
+        }
+        
+        centerStats[centerKey].totalBills++;
+        centerStats[centerKey].totalAmount += testRequest.billing?.amount || 0;
+        
+        if (testRequest.centerName !== correctCenterName || testRequest.centerCode !== correctCenterCode) {
+          centerStats[centerKey].inconsistencies++;
+        }
+      }
+    }
+    
+    console.log(`✅ Found ${inconsistencies.length} data inconsistencies`);
+    
+    res.json({
+      success: true,
+      totalCenters: centers.length,
+      totalTestRequests: testRequests.length,
+      inconsistencies: inconsistencies,
+      centerStats: Object.values(centerStats),
+      summary: {
+        totalInconsistencies: inconsistencies.length,
+        nameMismatches: inconsistencies.filter(i => i.type === 'name_mismatch').length,
+        codeMismatches: inconsistencies.filter(i => i.type === 'code_mismatch').length,
+        missingCenters: inconsistencies.filter(i => i.type === 'missing_center').length
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error validating center data:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to validate center data',
+      error: error.message 
+    });
+  }
+};
+
 // Test endpoint to check billing data
 export const testBillingData = async (req, res) => {
   try {
@@ -980,6 +1196,45 @@ export const testBillingData = async (req, res) => {
       isActive: true,
       billing: { $exists: true, $ne: null }
     }).select('centerId centerName').limit(10);
+    
+    // SPECIFIC TEST CENTER DEBUG
+    console.log('🔍 DEBUGGING TEST CENTER ISSUE:');
+    
+    // Find Test Center
+    const Center = (await import('../models/Center.js')).default;
+    const testCenter = await Center.findOne({ centername: 'Test Center' });
+    console.log('🔍 Test Center found:', testCenter);
+    
+    if (testCenter) {
+      // Check test requests for Test Center
+      const testCenterRequests = await TestRequest.find({
+        centerId: testCenter._id,
+        isActive: true
+      }).select('_id centerId centerName patientName testType billing status createdAt');
+      
+      console.log('🔍 Test requests for Test Center:', testCenterRequests.length);
+      console.log('🔍 Test requests data:', testCenterRequests);
+      
+      // Check billing data for Test Center
+      const testCenterBilling = await TestRequest.find({
+        centerId: testCenter._id,
+        isActive: true,
+        billing: { $exists: true, $ne: null }
+      }).select('_id centerId centerName patientName testType billing status createdAt');
+      
+      console.log('🔍 Billing requests for Test Center:', testCenterBilling.length);
+      console.log('🔍 Billing requests data:', testCenterBilling);
+      
+      // Check if there are any requests with centerName = 'Test Center' but different centerId
+      const testCenterNameRequests = await TestRequest.find({
+        centerName: 'Test Center',
+        isActive: true,
+        billing: { $exists: true, $ne: null }
+      }).select('_id centerId centerName patientName testType billing status createdAt');
+      
+      console.log('🔍 Requests with centerName = Test Center:', testCenterNameRequests.length);
+      console.log('🔍 Requests with centerName = Test Center data:', testCenterNameRequests);
+    }
     
     res.json({
       success: true,
@@ -1018,13 +1273,60 @@ export const getBillingReports = async (req, res) => {
     // Add center filter if specified
     if (centerId && centerId !== 'all') {
       try {
+        console.log('🔍 BACKEND: Processing centerId:', centerId);
+        console.log('🔍 BACKEND: centerId type:', typeof centerId);
+        console.log('🔍 BACKEND: centerId length:', centerId.length);
+        
         const mongoose = require('mongoose');
         const centerObjectId = new mongoose.Types.ObjectId(centerId);
-        baseQuery.centerId = centerObjectId;
-        console.log('🔍 Center filter applied (ObjectId):', centerObjectId);
-        console.log('🔍 Original centerId:', centerId);
-        console.log('🔍 CenterId type:', typeof centerId);
-        console.log('🔍 CenterId length:', centerId.length);
+        console.log('🔍 BACKEND: Converted to ObjectId:', centerObjectId);
+        console.log('🔍 BACKEND: ObjectId string:', centerObjectId.toString());
+        
+        // Get center details for validation and debugging
+        const Center = (await import('../models/Center.js')).default;
+        const centerDetails = await Center.findById(centerId).select('_id centername name centerCode');
+        console.log('🔍 BACKEND: Center details found:', centerDetails);
+        
+        if (centerDetails) {
+          const centerName = centerDetails.centername || centerDetails.name;
+          console.log('🔍 Center filter applied:', {
+            centerId: centerObjectId,
+            centerName: centerName,
+            centerCode: centerDetails.centerCode
+          });
+          
+          // Use strict centerId filtering only
+          baseQuery.centerId = centerObjectId;
+          
+          // Debug: Check what centers exist in the database
+          const allCenters = await Center.find({}).select('_id centername name centerCode');
+          console.log('🔍 All centers in database:', allCenters.map(c => ({
+            id: c._id.toString(),
+            name: c.centername || c.name,
+            code: c.centerCode
+          })));
+          
+          const selectedCenter = allCenters.find(c => c._id.toString() === centerId);
+          console.log('🔍 Selected center details:', selectedCenter ? {
+            id: selectedCenter._id.toString(),
+            name: selectedCenter.centername || selectedCenter.name,
+            code: selectedCenter.centerCode
+          } : 'NOT FOUND');
+          
+          // Debug: Check billing data for each center
+          for (const center of allCenters) {
+            const centerBillingCount = await TestRequest.countDocuments({
+              centerId: center._id,
+              isActive: true,
+              billing: { $exists: true, $ne: null }
+            });
+            console.log(`🔍 Center "${center.centername || center.name}" (${center._id}): ${centerBillingCount} billing records`);
+          }
+        } else {
+          console.log('❌ Center not found in database:', centerId);
+          baseQuery.centerId = centerObjectId;
+        }
+        
       } catch (error) {
         console.log('🔍 Error converting centerId to ObjectId:', error.message);
         // If conversion fails, don't apply center filter and log the error
@@ -1112,6 +1414,9 @@ export const getBillingReports = async (req, res) => {
     };
 
     console.log('🔍 Final query:', JSON.stringify(finalQuery, null, 2));
+    console.log('🔍 BACKEND: About to execute aggregation with centerId filter:', finalQuery.centerId);
+    console.log('🔍 BACKEND: CenterId type:', typeof finalQuery.centerId);
+    console.log('🔍 BACKEND: CenterId value:', finalQuery.centerId);
 
     // First, let's check if there's any data at all without filters
     const totalCount = await TestRequest.countDocuments({
@@ -1191,6 +1496,7 @@ export const getBillingReports = async (req, res) => {
 
     // Get billing data with aggregation
     console.log('🔍 Executing main aggregation with query:', JSON.stringify(finalQuery, null, 2));
+    console.log('🔍 BACKEND: About to execute aggregation with centerId filter:', finalQuery.centerId);
     let billingData = await TestRequest.aggregate([
       { $match: finalQuery },
       {
@@ -1226,8 +1532,20 @@ export const getBillingReports = async (req, res) => {
           urgency: 1,
           status: 1,
           centerId: 1,
-          centerName: 1,
-          centerCode: 1,
+          centerName: { 
+            $cond: {
+              if: { $gt: [{ $size: '$center' }, 0] },
+              then: { $ifNull: [{ $arrayElemAt: ['$center.centername', 0] }, { $arrayElemAt: ['$center.name', 0] }] },
+              else: '$centerName'
+            }
+          },
+          centerCode: { 
+            $cond: {
+              if: { $gt: [{ $size: '$center' }, 0] },
+              then: { $ifNull: [{ $arrayElemAt: ['$center.centerCode', 0] }, { $arrayElemAt: ['$center.code', 0] }] },
+              else: '$centerCode'
+            }
+          },
           doctorId: 1,
           doctorName: 1,
           patientId: 1,
@@ -1252,11 +1570,62 @@ export const getBillingReports = async (req, res) => {
       sampleRecords: billingData.slice(0, 3).map(item => ({
         id: item._id,
         centerId: item.centerId,
+        centerIdString: item.centerId?.toString(),
         centerName: item.centerName,
+        centerCode: item.centerCode,
         patientName: item.patientName,
-        amount: item.billing?.amount
+        amount: item.billing?.amount,
+        centerLookup: item.center
       }))
     });
+    
+    // SPECIFIC DEBUG FOR TEST CENTER
+    if (centerId && centerId.toString().includes('68bffd315efab8605aafc789')) {
+      console.log('🔍 TEST CENTER SPECIFIC DEBUG:');
+      console.log('🔍 Requested centerId:', centerId);
+      console.log('🔍 All returned records:', billingData.map(item => ({
+        id: item._id,
+        centerId: item.centerId?.toString(),
+        centerName: item.centerName,
+        patientName: item.patientName
+      })));
+      
+      const testCenterRecords = billingData.filter(item => 
+        item.centerId?.toString() === '68bffd315efab8605aafc789'
+      );
+      console.log('🔍 Records matching Test Center ID:', testCenterRecords.length);
+      console.log('🔍 Test Center records:', testCenterRecords.map(item => ({
+        id: item._id,
+        centerId: item.centerId?.toString(),
+        centerName: item.centerName,
+        patientName: item.patientName
+      })));
+    }
+    
+    // Debug: Check if returned data matches the selected center
+    if (centerId && centerId !== 'all') {
+      console.log('🔍 BACKEND: Checking data consistency for centerId:', centerId);
+      const mismatchedRecords = billingData.filter(item => 
+        item.centerId?.toString() !== centerId
+      );
+      if (mismatchedRecords.length > 0) {
+        console.error('❌ BACKEND: DATA MISMATCH FOUND!');
+        console.error('❌ BACKEND: Expected centerId:', centerId);
+        console.error('❌ BACKEND: Mismatched records:', mismatchedRecords.map(item => ({
+          id: item._id,
+          centerId: item.centerId?.toString(),
+          centerName: item.centerName
+        })));
+        
+        // Filter out mismatched records to ensure data integrity
+        console.log('🔍 BACKEND: Filtering out mismatched records...');
+        const originalLength = billingData.length;
+        billingData = billingData.filter(item => item.centerId?.toString() === centerId);
+        console.log(`🔍 BACKEND: Filtered from ${originalLength} to ${billingData.length} records`);
+      } else {
+        console.log('✅ BACKEND: All records match the selected center');
+      }
+    }
 
     // If no data found and center filtering is applied, try with OR query
     if (billingData.length === 0 && centerId && centerId !== 'all') {
@@ -1266,13 +1635,16 @@ export const getBillingReports = async (req, res) => {
         const mongoose = require('mongoose');
         const centerObjectId = new mongoose.Types.ObjectId(centerId);
         
+        // Get center details for fallback filtering
+        const Center = (await import('../models/Center.js')).default;
+        const centerDetails = await Center.findById(centerId).select('_id centername name centerCode');
+        
+        // Use strict centerId filtering only
         const fallbackQuery = {
-          ...baseQuery,
-          ...dateQuery,
-          $or: [
-            { centerId: centerObjectId },
-            { centerId: centerId }
-          ]
+          isActive: true,
+          billing: { $exists: true, $ne: null },
+          centerId: centerObjectId,
+          ...dateQuery
         };
         
         console.log('🔍 Fallback query (OR):', JSON.stringify(fallbackQuery, null, 2));
@@ -1312,8 +1684,20 @@ export const getBillingReports = async (req, res) => {
             urgency: 1,
             status: 1,
             centerId: 1,
-            centerName: 1,
-            centerCode: 1,
+            centerName: { 
+              $cond: {
+                if: { $gt: [{ $size: '$center' }, 0] },
+                then: { $ifNull: [{ $arrayElemAt: ['$center.centername', 0] }, { $arrayElemAt: ['$center.name', 0] }] },
+                else: '$centerName'
+              }
+            },
+            centerCode: { 
+              $cond: {
+                if: { $gt: [{ $size: '$center' }, 0] },
+                then: { $ifNull: [{ $arrayElemAt: ['$center.centerCode', 0] }, { $arrayElemAt: ['$center.code', 0] }] },
+                else: '$centerCode'
+              }
+            },
             doctorId: 1,
             doctorName: 1,
             patientId: 1,

@@ -28,6 +28,8 @@ import testRequestRoutes from './routes/testRequestRoutes.js';
 import labReportsRoutes from './routes/labReportsRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import billingRoutes from './routes/billingRoutes.js';
+import sessionRoutes from './routes/sessionRoutes.js';
+import loginHistoryRoutes from './routes/loginHistoryRoutes.js';
 
 
 dotenv.config();
@@ -135,6 +137,8 @@ app.use('/api/test-requests', testRequestRoutes);
 app.use('/api/lab-reports', labReportsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/billing', billingRoutes);
+app.use('/api/sessions', sessionRoutes);
+app.use('/api/login-history', loginHistoryRoutes);
 
 
 // Use environment variable or fallback to local MongoDB

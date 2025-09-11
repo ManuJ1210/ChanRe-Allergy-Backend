@@ -11,7 +11,9 @@ import {
   getBillingStats,
   getBillingReports,
   getCenterBillingReports,
-  testBillingData
+  testBillingData,
+  fixCenterData,
+  validateCenterData
 } from '../controllers/billingController.js';
 import { generateInvoicePDF } from '../controllers/invoiceController.js';
 
@@ -46,6 +48,12 @@ router.get('/stats', checkSuperAdmin, getBillingStats);
 
 // Test billing data endpoint
 router.get('/test-data', checkSuperAdmin, testBillingData);
+
+// Fix center data inconsistencies in billing records
+router.post('/fix-center-data', checkSuperAdmin, fixCenterData);
+
+// Validate center data consistency
+router.get('/validate-center-data', checkSuperAdmin, validateCenterData);
 
 // Get billing reports for superadmin (daily, weekly, monthly, yearly)
 router.get('/reports', checkSuperAdmin, getBillingReports);

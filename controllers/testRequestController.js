@@ -466,7 +466,7 @@ export const createTestRequest = async (req, res) => {
     const savedTestRequest = await newTestRequest.save();
     console.log('Test request saved:', savedTestRequest);
 
-    // ✅ NEW: Send notifications to superadmin, superadmin doctor, center admin, and center receptionists
+    // ✅ NEW: Send notifications to superadmin, superadmin consultant, center admin, and center receptionists
     try {
       // Import Notification model dynamically to avoid circular dependencies
       const Notification = (await import('../models/Notification.js')).default;
@@ -478,9 +478,9 @@ export const createTestRequest = async (req, res) => {
         isDeleted: { $ne: true }
       });
       
-      // 2. Find superadmin doctors
+      // 2. Find superadmin consultants
       const SuperAdminDoctor = (await import('../models/SuperAdminDoctor.js')).default;
-      const superadminDoctors = await SuperAdminDoctor.find({ 
+      const superadminConsultants = await SuperAdminDoctor.find({ 
         status: 'active',
         isSuperAdminStaff: true
       });
@@ -521,10 +521,10 @@ export const createTestRequest = async (req, res) => {
         console.log(`✅ Notification sent to superadmin: ${superadmin.name}`);
       }
       
-      // Create notifications for superadmin doctors (status visibility only)
-      for (const superadminDoctor of superadminDoctors) {
+      // Create notifications for superadmin consultants (status visibility only)
+      for (const superadminConsultant of superadminConsultants) {
         const notification = new Notification({
-          recipient: superadminDoctor._id,
+          recipient: superadminConsultant._id,
           sender: doctorId,
           type: 'test_request',
           title: 'New Test Request (Billing Pending)',
@@ -541,7 +541,7 @@ export const createTestRequest = async (req, res) => {
           read: false
         });
         await notification.save();
-        console.log(`✅ Notification sent to superadmin doctor: ${superadminDoctor.name}`);
+        console.log(`✅ Notification sent to superadmin consultant: ${superadminConsultant.name}`);
       }
 
       // Notify center admins
@@ -1599,15 +1599,26 @@ export const checkReportStatus = async (req, res) => {
 export const downloadTestReport = async (req, res) => {
   try {
     const { id } = req.params;
+    console.log(`[DOWNLOAD DEBUG] Attempting to download report for test request ID: ${id}`);
+    
     const testRequest = await TestRequest.findById(id);
     
     if (!testRequest) {
+      console.log(`[DOWNLOAD DEBUG] Test request not found for ID: ${id}`);
       return res.status(404).json({ message: 'Test request not found' });
     }
+
+    console.log(`[DOWNLOAD DEBUG] Test request found:`, {
+      id: testRequest._id,
+      status: testRequest.status,
+      reportFilePath: testRequest.reportFilePath,
+      reportGeneratedDate: testRequest.reportGeneratedDate
+    });
 
     // Check if test request is eligible for report download
     const validStatuses = ['Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'];
     if (!validStatuses.includes(testRequest.status)) {
+      console.log(`[DOWNLOAD DEBUG] Invalid status for download: ${testRequest.status}`);
       return res.status(400).json({ 
         message: 'Report not available for download',
         currentStatus: testRequest.status,
@@ -1619,6 +1630,7 @@ export const downloadTestReport = async (req, res) => {
     const reportFilePath = testRequest.reportFilePath;
     
     if (!reportFilePath) {
+      console.log(`[DOWNLOAD DEBUG] No report file path found for test request: ${id}`);
       return res.status(404).json({ 
         message: 'Report file path not found',
         suggestion: 'The report may not have been generated yet or the file path is missing.',

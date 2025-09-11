@@ -14,7 +14,7 @@ import AtopicDermatitis from '../models/AtopicDermatitis.js';
 import Notification from '../models/Notification.js';
 import History from '../models/historyModel.js';
 
-// Management functions for superadmin to manage superadmin doctors
+// Management functions for superadmin to manage superadmin consultants
 export const getAllSuperAdminDoctors = async (req, res) => {
   try {
     const { page = 1, limit = 10, search = '', status = '' } = req.query;
@@ -68,7 +68,7 @@ export const getAllSuperAdminDoctors = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching superadmin doctors', error: error.message });
+    res.status(500).json({ message: 'Error fetching superadmin consultants', error: error.message });
   }
 };
 
@@ -138,7 +138,7 @@ export const addSuperAdminDoctor = async (req, res) => {
 
     res.status(201).json(doctorResponse);
   } catch (error) {
-    res.status(500).json({ message: 'Error adding superadmin doctor', error: error.message });
+    res.status(500).json({ message: 'Error adding superadmin consultant', error: error.message });
   }
 };
 
@@ -148,13 +148,13 @@ export const deleteSuperAdminDoctor = async (req, res) => {
 
     const doctor = await SuperAdminDoctor.findById(id);
     if (!doctor) {
-      return res.status(404).json({ message: 'Superadmin doctor not found' });
+      return res.status(404).json({ message: 'Superadmin consultant not found' });
     }
 
     await SuperAdminDoctor.findByIdAndDelete(id);
-    res.json({ message: 'Superadmin doctor deleted successfully' });
+    res.json({ message: 'Superadmin consultant deleted successfully' });
   } catch (error) {
-    res.status(500).json({ message: 'Error deleting superadmin doctor', error: error.message });
+    res.status(500).json({ message: 'Error deleting superadmin consultant', error: error.message });
   }
 };
 
@@ -164,12 +164,12 @@ export const getSuperAdminDoctorById = async (req, res) => {
 
     const doctor = await SuperAdminDoctor.findById(id).select('-password');
     if (!doctor) {
-      return res.status(404).json({ message: 'Superadmin doctor not found' });
+      return res.status(404).json({ message: 'Superadmin consultant not found' });
     }
 
     res.json(doctor);
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching superadmin doctor', error: error.message });
+    res.status(500).json({ message: 'Error fetching superadmin consultant', error: error.message });
   }
 };
 
@@ -192,7 +192,7 @@ export const updateSuperAdminDoctor = async (req, res) => {
 
     const doctor = await SuperAdminDoctor.findById(id);
     if (!doctor) {
-      return res.status(404).json({ message: 'Superadmin doctor not found' });
+      return res.status(404).json({ message: 'Superadmin consultant not found' });
     }
 
     // Check if email is being changed and if it already exists
@@ -233,7 +233,7 @@ export const updateSuperAdminDoctor = async (req, res) => {
 
     res.json(updatedDoctor);
   } catch (error) {
-    res.status(500).json({ message: 'Error updating superadmin doctor', error: error.message });
+    res.status(500).json({ message: 'Error updating superadmin consultant', error: error.message });
   }
 };
 
@@ -243,7 +243,7 @@ export const toggleSuperAdminDoctorStatus = async (req, res) => {
 
     const doctor = await SuperAdminDoctor.findById(id);
     if (!doctor) {
-      return res.status(404).json({ message: 'Superadmin doctor not found' });
+      return res.status(404).json({ message: 'Superadmin consultant not found' });
     }
 
     doctor.status = doctor.status === 'active' ? 'inactive' : 'active';
@@ -254,7 +254,7 @@ export const toggleSuperAdminDoctorStatus = async (req, res) => {
 
     res.json(doctorResponse);
   } catch (error) {
-    res.status(500).json({ message: 'Error toggling superadmin doctor status', error: error.message });
+    res.status(500).json({ message: 'Error toggling superadmin consultant status', error: error.message });
   }
 };
 
@@ -276,11 +276,11 @@ export const getSuperAdminDoctorStats = async (req, res) => {
       inactive: inactiveDoctors
     });
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching superadmin doctor stats', error: error.message });
+    res.status(500).json({ message: 'Error fetching superadmin consultant stats', error: error.message });
   }
 };
 
-// Working functions for superadmin doctors to perform their duties
+// Working functions for superadmin consultants to perform their duties
 export const getSuperAdminDoctorAssignedPatients = async (req, res) => {
   try {
     const patients = await Patient.find({ assignedDoctor: req.user.id })
@@ -428,7 +428,7 @@ export const getSuperAdminDoctorWorkingStats = async (req, res) => {
       'superadminReview.status': { $ne: 'reviewed' }
     });
 
-    // Get reports reviewed by this superadmin doctor
+    // Get reports reviewed by this superadmin consultant
     const reviewedByMe = await TestRequest.countDocuments({
       'superadminReview.reviewedBy': userId
     });
@@ -460,7 +460,7 @@ export const getSuperAdminDoctorWorkingStats = async (req, res) => {
   }
 };
 
-// Lab Reports functionality for superadmin doctors
+// Lab Reports functionality for superadmin consultants
 export const getSuperAdminDoctorLabReports = async (req, res) => {
   try {
     const { page = 1, limit = 10, status, search } = req.query;
@@ -825,7 +825,7 @@ export const sendFeedbackToCenterDoctor = async (req, res) => {
       sender: req.user.id,
       type: 'lab_report_feedback',
       title: 'Lab Report Feedback',
-      message: `Superadmin doctor has reviewed the lab report for patient ${updatedTestRequest.patientName || updatedTestRequest.patientId?.name || 'Unknown Patient'}`,
+      message: `Superadmin consultant has reviewed the lab report for patient ${updatedTestRequest.patientName || updatedTestRequest.patientId?.name || 'Unknown Patient'}`,
       data: {
         testId: reportId,
         patientId,
@@ -849,7 +849,7 @@ export const sendFeedbackToCenterDoctor = async (req, res) => {
   }
 };
 
-// Get all patients for superadmin doctor (only those with completed lab reports)
+// Get all patients for superadmin consultant (only those with completed lab reports)
 export const getSuperAdminDoctorPatients = async (req, res) => {
   try {
     
@@ -1284,7 +1284,7 @@ export const reviewTestRequest = async (req, res) => {
             sender: req.user.id,
             type: 'test_request',
             title: 'Test Request Approved for Lab',
-            message: `Test request for ${testRequest.patientName} has been approved by superadmin doctor and is ready for lab assignment.`,
+            message: `Test request for ${testRequest.patientName} has been approved by superadmin consultant and is ready for lab assignment.`,
             data: {
               testRequestId: testRequest._id,
               patientId: testRequest.patientId,
@@ -1315,7 +1315,7 @@ export const reviewTestRequest = async (req, res) => {
   }
 };
 
-// ✅ NEW: Get test request statistics for superadmin doctor dashboard
+// ✅ NEW: Get test request statistics for superadmin consultant dashboard
 export const getTestRequestStats = async (req, res) => {
   try {
     const stats = await TestRequest.aggregate([

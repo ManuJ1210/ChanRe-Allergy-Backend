@@ -181,9 +181,9 @@ export const deleteDoctor = async (req, res) => {
       return res.status(404).json({ message: 'Doctor not found' });
     }
 
-    // Check if it's a superadmin staff doctor (should not be deleted through this endpoint)
+    // Check if it's a superadmin staff consultant (should not be deleted through this endpoint)
     if (doctor.isSuperAdminStaff) {
-      console.log('❌ Cannot delete superadmin staff doctor through this endpoint');
+      console.log('❌ Cannot delete superadmin staff consultant through this endpoint');
       return res.status(403).json({ message: 'Access denied. You can only delete regular doctors.' });
     }
 

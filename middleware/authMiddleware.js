@@ -3,6 +3,7 @@ import User from '../models/User.js';
 import LabStaff from '../models/LabStaff.js';
 import SuperAdminDoctor from '../models/SuperAdminDoctor.js';
 import SuperAdminReceptionist from '../models/SuperAdminReceptionist.js';
+import UserSession from '../models/UserSession.js';
 
 
 export const protect = async (req, res, next) => {
@@ -56,6 +57,21 @@ export const protect = async (req, res, next) => {
       });
       
       req.user = user;
+      
+      // Update session activity if session exists
+      try {
+        const session = await UserSession.findOne({ 
+          token: token, 
+          isActive: true 
+        });
+        if (session) {
+          await session.updateActivity();
+        }
+      } catch (sessionError) {
+        console.error('Error updating session activity:', sessionError);
+        // Don't block the request if session update fails
+      }
+      
       next();
     } catch (error) {
       console.error('Token validation failed', error);

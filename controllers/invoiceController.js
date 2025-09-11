@@ -25,7 +25,7 @@ export const generateInvoicePDF = async (req, res) => {
     const TestRequest = (await import('../models/TestRequest.js')).default;
     const testRequest = await TestRequest.findById(testRequestId)
       .populate('patientId', 'name phone address age gender')
-      .populate('doctorId', 'name')
+      .populate('doctorId', 'name specializations')
       .populate('centerId', 'name code');
     
     if (!testRequest) {
@@ -87,6 +87,9 @@ export const generateInvoicePDF = async (req, res) => {
     doc.fontSize(14).text('DOCTOR INFORMATION');
     doc.fontSize(10);
     doc.text(`Name: ${testRequest.doctorName || testRequest.doctorId?.name || 'N/A'}`);
+    if (testRequest.doctorId?.specializations && testRequest.doctorId.specializations.length > 0) {
+      doc.text(`Specialization: ${testRequest.doctorId.specializations.join(', ')}`);
+    }
     doc.moveDown();
     
     // Test information
