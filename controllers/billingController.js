@@ -579,6 +579,14 @@ export const markBillPaidForTestRequest = async (req, res) => {
       hasNotes: !!verificationNotes
     });
 
+    // Validate ObjectId format
+    if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        message: 'Invalid test request ID format',
+        receivedId: id
+      });
+    }
+
     // Find the test request
     const testRequest = await TestRequest.findById(id)
       .select('patientName centerId centerName centerCode _id status billing doctorId patientId testType')
@@ -612,50 +620,59 @@ export const markBillPaidForTestRequest = async (req, res) => {
       });
     }
 
-    // Check if bill is already paid
-    if (testRequest.billing.status === 'paid') {
+    // Check if bill is already fully paid (allow partial payments to continue)
+    // Note: We allow additional payments even if status is 'paid' to support partial payment workflow
+    // The frontend will handle the actual payment amount validation
+    if (testRequest.billing.status === 'paid' && testRequest.billing.paidAmount >= testRequest.billing.amount) {
       return res.status(400).json({ 
-        message: 'Bill is already marked as paid.',
-        currentBillingStatus: testRequest.billing.status
+        message: 'Bill is already fully paid.',
+        currentBillingStatus: testRequest.billing.status,
+        paidAmount: testRequest.billing.paidAmount,
+        totalAmount: testRequest.billing.amount
       });
     }
 
-    // Check if this is a receptionist marking payment received or center admin verifying
-    const isReceptionist = req.user.role === 'receptionist';
-    const isCenterAdmin = req.user.role === 'centeradmin';
+    // Handle payment amount from request body (for partial payments)
+    const paymentAmount = parseFloat(req.body.paymentAmount) || testRequest.billing.amount;
+    const currentPaidAmount = testRequest.billing.paidAmount || 0;
+    const newPaidAmount = currentPaidAmount + paymentAmount;
+    const totalAmount = testRequest.billing.amount;
     
-    if (isReceptionist) {
-      // Receptionist marks payment as received (needs center admin verification)
-      testRequest.billing.status = 'payment_received';
-      testRequest.billing.paidAt = new Date();
-      testRequest.billing.paidBy = req.user.id || req.user._id;
-      testRequest.billing.paymentMethod = paymentMethod;
-      testRequest.billing.transactionId = transactionId;
-      testRequest.billing.receiptUpload = receiptFileName;
-      
-      // Update main status to indicate payment received but needs verification
-      testRequest.status = 'Billing_Generated'; // Keep as generated until verified
-      testRequest.updatedAt = new Date();
-      
-      console.log('💰 Receptionist marked payment as received - awaiting center admin verification');
-    } else if (isCenterAdmin) {
-      // Center admin verifies the payment
+    console.log('💰 Payment calculation:', {
+      paymentAmount,
+      currentPaidAmount,
+      newPaidAmount,
+      totalAmount,
+      isFullyPaid: newPaidAmount >= totalAmount
+    });
+    
+    // Update payment information
+    testRequest.billing.paidAmount = newPaidAmount;
+    testRequest.billing.paidAt = new Date();
+    testRequest.billing.paidBy = req.user.id || req.user._id;
+    testRequest.billing.paymentMethod = paymentMethod || 'Cash';
+    testRequest.billing.transactionId = transactionId;
+    testRequest.billing.receiptUpload = receiptFileName;
+    testRequest.billing.verificationNotes = verificationNotes;
+    
+    // Set status based on payment amount
+    if (newPaidAmount >= totalAmount) {
+      // Fully paid - ready for lab processing
       testRequest.billing.status = 'paid';
-      testRequest.billing.verifiedBy = req.user.id || req.user._id;
-      testRequest.billing.verifiedAt = new Date();
-      testRequest.billing.verificationNotes = verificationNotes;
-      
-      // Update main status to paid and verified
       testRequest.status = 'Billing_Paid';
-      testRequest.updatedAt = new Date();
-      
-      console.log('✅ Center admin verified payment - ready for lab processing');
+      testRequest.workflowStage = 'lab_assignment';
+      console.log('✅ Bill fully paid - ready for lab processing');
     } else {
-      return res.status(403).json({ 
-        message: 'Only receptionists can mark payments as received and center admins can verify payments',
-        userRole: req.user.role
-      });
+      // Partially paid - also ready for lab processing (allow lab to see and work on it)
+      testRequest.billing.status = 'partially_paid';
+      testRequest.status = 'Billing_Paid'; // Allow lab to see it
+      testRequest.workflowStage = 'lab_assignment'; // Move to lab stage
+      console.log('💰 Bill partially paid - ready for lab processing with partial payment');
     }
+    
+    testRequest.updatedAt = new Date();
+    
+    console.log('✅ Payment marked as paid - test request ready for lab processing');
 
     console.log('💰 Updating billing status to paid');
 
@@ -663,38 +680,40 @@ export const markBillPaidForTestRequest = async (req, res) => {
     const updated = await testRequest.save();
     console.log('✅ Bill marked as paid successfully');
 
-    // Notify stakeholders
+    // Notify stakeholders (lab staff only when fully paid)
     try {
+      // Ensure we have a proper patient name
+      const patientName = testRequest.patientName || 
+                         (testRequest.patientId && typeof testRequest.patientId === 'object' ? testRequest.patientId.name : null) ||
+                         (testRequest.patientId && typeof testRequest.patientId === 'string' ? testRequest.patientId : null) ||
+                         'Unknown Patient';
+
+      // Always notify all stakeholders including lab staff for any payment (partial or full)
       const recipients = await User.find({
         $or: [
           { _id: testRequest.doctorId },
           { role: 'centeradmin', centerId: testRequest.centerId },
-          { role: 'superadmin', isSuperAdminStaff: true }
+          { role: 'superadmin', isSuperAdminStaff: true },
+          { role: 'lab', centerId: testRequest.centerId } // Always include lab staff for any payment
         ],
         isDeleted: { $ne: true }
       });
+      
+      // Determine notification message based on payment status
+      let notificationTitle;
+      let notificationMessage;
+      
+      if (newPaidAmount >= totalAmount) {
+        notificationTitle = 'Payment Received - Test Ready for Lab';
+        notificationMessage = `Payment received for ${patientName} - ${testRequest.testType || 'Unknown Test'}. Amount: ${testRequest.billing.currency} ${testRequest.billing.amount}. Test request is now ready for lab processing.`;
+      } else {
+        notificationTitle = 'Partial Payment Received - Test Ready for Lab';
+        notificationMessage = `Partial payment received for ${patientName} - ${testRequest.testType || 'Unknown Test'}. Amount paid: ${testRequest.billing.currency} ${newPaidAmount} of ${testRequest.billing.currency} ${totalAmount}. Test request is ready for lab processing with partial payment status.`;
+      }
 
-      console.log(`📧 Sending payment notifications to ${recipients.length} recipients`);
+      console.log(`📧 Sending ${newPaidAmount >= totalAmount ? 'full payment' : 'partial payment'} notifications to ${recipients.length} recipients`);
 
       for (const r of recipients) {
-        let notificationTitle, notificationMessage, notificationStatus;
-        
-        if (isReceptionist) {
-          notificationTitle = 'Payment Received - Awaiting Verification';
-          notificationMessage = `Payment received for ${patientName} - ${testRequest.testType || 'Unknown Test'}. Amount: ${testRequest.billing.currency} ${testRequest.billing.amount}. Awaiting center admin verification.`;
-          notificationStatus = 'payment_received';
-        } else if (isCenterAdmin) {
-          notificationTitle = 'Payment Verified - Ready for Lab';
-          notificationMessage = `Payment verified for ${patientName} - ${testRequest.testType || 'Unknown Test'}. Amount: ${testRequest.billing.currency} ${testRequest.billing.amount}. Ready for lab processing.`;
-          notificationStatus = 'Billing_Paid';
-        }
-        
-        // Ensure we have a proper patient name
-        const patientName = testRequest.patientName || 
-                           (testRequest.patientId && typeof testRequest.patientId === 'object' ? testRequest.patientId.name : null) ||
-                           (testRequest.patientId && typeof testRequest.patientId === 'string' ? testRequest.patientId : null) ||
-                           'Unknown Patient';
-        
         const n = new Notification({
           recipient: r._id,
           sender: req.user.id || req.user._id,
@@ -703,8 +722,12 @@ export const markBillPaidForTestRequest = async (req, res) => {
           message: notificationMessage,
           data: { 
             testRequestId: testRequest._id, 
-            amount: testRequest.billing.amount, 
-            status: notificationStatus,
+            amount: testRequest.billing.amount,
+            paidAmount: newPaidAmount,
+            remainingAmount: totalAmount - newPaidAmount,
+            paymentStatus: newPaidAmount >= totalAmount ? 'fully_paid' : 'partially_paid',
+            billingStatus: newPaidAmount >= totalAmount ? 'paid' : 'partially_paid',
+            status: 'Billing_Paid', // Always Billing_Paid for lab visibility
             patientId: testRequest.patientId,
             patientName: patientName,
             testType: testRequest.testType || 'Unknown Test'
@@ -718,19 +741,11 @@ export const markBillPaidForTestRequest = async (req, res) => {
       console.error('❌ Payment notification error:', notifyErr);
     }
 
-    if (isReceptionist) {
-      console.log('🎉 Payment marked as received - awaiting center admin verification');
-      res.status(200).json({ 
-        message: 'Payment recorded successfully. Awaiting center admin verification.', 
-        testRequest: updated 
-      });
-    } else if (isCenterAdmin) {
-      console.log('🎉 Payment verified successfully - ready for lab processing');
-      res.status(200).json({ 
-        message: 'Payment verified successfully. Test request ready for lab processing.', 
-        testRequest: updated 
-      });
-    }
+    console.log('🎉 Payment marked successfully - test request ready for lab processing');
+    res.status(200).json({ 
+      message: 'Payment marked successfully. Test request is now ready for lab processing.', 
+      testRequest: updated 
+    });
   } catch (error) {
     console.error('❌ Error marking bill as paid:', error);
     res.status(500).json({ message: 'Failed to mark bill as paid', error: error.message });
@@ -781,13 +796,11 @@ export const getAllBillingData = async (req, res) => {
   try {
     console.log('🚀 getAllBillingData called by superadmin');
     
-    // Get all test requests with billing information from database
+    // Get all test requests with billing information from database - only include items with actual billing status
     const billingRequests = await TestRequest.find({ 
       isActive: true,
-      $or: [
-        { billing: { $exists: true, $ne: null } },
-        { status: { $in: ['Billing_Pending', 'Billing_Generated', 'Billing_Paid'] } }
-      ]
+      billing: { $exists: true, $ne: null },
+      'billing.status': { $exists: true, $ne: null }
     })
       .select('testType testDescription status urgency notes centerId centerName centerCode doctorId doctorName patientId patientName patientPhone patientAddress billing createdAt updatedAt')
       .populate('doctorId', 'name email phone specializations')
@@ -822,14 +835,12 @@ export const getBillingDataForCenter = async (req, res) => {
       return res.status(400).json({ message: 'Center ID is required' });
     }
 
-    // Get all test requests with billing information for this center
+    // Get all test requests with billing information for this center - only include items with actual billing status
     const billingRequests = await TestRequest.find({ 
       centerId,
       isActive: true,
-      $or: [
-        { billing: { $exists: true, $ne: null } },
-        { status: { $in: ['Billing_Pending', 'Billing_Generated', 'Billing_Paid'] } }
-      ]
+      billing: { $exists: true, $ne: null },
+      'billing.status': { $exists: true, $ne: null }
     })
       .select('testType testDescription status urgency notes centerId centerName centerCode doctorId doctorName patientId patientName patientPhone patientAddress billing createdAt updatedAt')
       .populate('doctorId', 'name email phone specializations')
@@ -1264,10 +1275,11 @@ export const getBillingReports = async (req, res) => {
       endDate
     });
 
-    // Build base query
+    // Build base query - only include items with actual billing status
     let baseQuery = {
       isActive: true,
-      billing: { $exists: true, $ne: null }
+      billing: { $exists: true, $ne: null },
+      'billing.status': { $exists: true, $ne: null }
     };
 
     // Add center filter if specified
@@ -2079,13 +2091,11 @@ export const getBillingStats = async (req, res) => {
   try {
     console.log('🚀 getBillingStats called');
     
-    // Get all test requests with billing information
+    // Get all test requests with billing information - only include items with actual billing status
     const billingRequests = await TestRequest.find({ 
       isActive: true,
-      $or: [
-        { billing: { $exists: true, $ne: null } },
-        { status: { $in: ['Billing_Pending', 'Billing_Generated', 'Billing_Paid'] } }
-      ]
+      billing: { $exists: true, $ne: null },
+      'billing.status': { $exists: true, $ne: null }
     })
       .select('billing status centerId centerName createdAt')
       .lean();
@@ -2310,11 +2320,12 @@ export const getCenterBillingReports = async (req, res) => {
       };
     }
 
-    // Build query for this center only
+    // Build query for this center only - only include items with actual billing status
     let query = {
       centerId: centerId,
       isActive: true,
       billing: { $exists: true, $ne: null },
+      'billing.status': { $exists: true, $ne: null },
       ...dateFilter
     };
 
@@ -2554,3 +2565,4 @@ export const getCenterBillingReports = async (req, res) => {
     });
   }
 };
+

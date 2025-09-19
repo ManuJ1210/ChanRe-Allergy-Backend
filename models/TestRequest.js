@@ -93,7 +93,7 @@ const testRequestSchema = new mongoose.Schema({
   billing: {
     status: {
       type: String,
-      enum: ['not_generated', 'generated', 'payment_received', 'paid', 'cancelled'],
+      enum: ['not_generated', 'generated', 'payment_received', 'paid', 'partially_paid', 'verified', 'cancelled'],
       default: 'not_generated'
     },
     amount: { type: Number, default: 0 },

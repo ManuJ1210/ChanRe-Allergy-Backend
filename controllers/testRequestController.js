@@ -284,7 +284,7 @@ export const getTestRequestsForCurrentLabStaff = async (req, res) => {
         {
           $and: [
             { billing: { $exists: true, $ne: null } },
-            { 'billing.status': 'paid' },
+            { 'billing.status': { $in: ['paid', 'partially_paid'] } }, // Include both fully paid and partially paid bills
             { 
               status: { 
                 $in: [
