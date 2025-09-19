@@ -100,3 +100,49 @@ export const getHistoryByPatient = async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch history', error: err.message });
   }
 };
+
+// Update a history record
+export const updateHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const fileName = req.file ? req.file.filename : null;
+
+    // Parse JSON string if it exists
+    let parsedData = {};
+    if (req.body.formData) {
+      parsedData = JSON.parse(req.body.formData);
+    }
+
+    // Validate ID
+    if (!id) {
+      return res.status(400).json({ message: 'History ID is required' });
+    }
+
+    // Find the history record
+    const existingHistory = await History.findById(id);
+    if (!existingHistory) {
+      return res.status(404).json({ message: 'History record not found' });
+    }
+
+    // Prepare update data
+    const updateData = { ...parsedData };
+    if (fileName) {
+      updateData.reportFile = fileName;
+    }
+
+    // Update the history record
+    const updatedHistory = await History.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    res.status(200).json({
+      message: 'Medical history updated successfully',
+      data: updatedHistory,
+    });
+  } catch (err) {
+    console.error('Error updating history:', err.message);
+    res.status(500).json({ message: 'Failed to update history', error: err.message });
+  }
+};
