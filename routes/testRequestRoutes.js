@@ -32,10 +32,11 @@ import {
 import {
   getBillingRequestsForCurrentReceptionist
 } from '../controllers/testRequestController.js';
-import {
-  generateBillForTestRequest,
-  markBillPaidForTestRequest
-} from '../controllers/billingController.js';
+// Removed billing controller imports - using billingRoutes.js instead
+// import {
+//   generateBillForTestRequest,
+//   markBillPaidForTestRequest
+// } from '../controllers/billingController.js';
 
 const router = express.Router();
 
@@ -100,9 +101,9 @@ router.get('/debug/auth', protect, (req, res) => {
   });
 });
 
-// Billing generation and payment endpoints
-router.put('/:id/generate-bill', protect, generateBillForTestRequest);
-router.put('/:id/mark-bill-paid', protect, markBillPaidForTestRequest);
+// Billing generation and payment endpoints - REMOVED: Use billingRoutes.js instead
+// router.put('/:id/generate-bill', protect, generateBillForTestRequest);
+// router.put('/:id/mark-bill-paid', protect, markBillPaidForTestRequest);
 
 // Get test request by ID
 router.get('/:id', protect, getTestRequestById);
