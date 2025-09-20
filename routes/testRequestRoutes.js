@@ -2,6 +2,7 @@ import express from 'express';
 import { protect, ensureCenterIsolation, checkSuperAdmin } from '../middleware/authMiddleware.js';
 import { pdfAuth } from '../middleware/pdfAuthMiddleware.js';
 import upload from '../middleware/uploadMiddleware.js';
+import TestRequest from '../models/TestRequest.js';
 import {
   getAllTestRequests,
   getPendingTestRequests,
@@ -78,6 +79,65 @@ router.get('/report-status/:id', protect, checkReportStatus);
 
 // Download test report (PDF) - Use regular protect middleware instead of pdfAuth
 router.get('/download-report/:id', protect, downloadTestReport);
+
+// Test endpoint to check PDF file access
+router.get('/test-pdf/:id', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const testRequest = await TestRequest.findById(id);
+    
+    if (!testRequest) {
+      return res.status(404).json({ message: 'Test request not found' });
+    }
+    
+    const reportFilePath = testRequest.reportFilePath;
+    if (!reportFilePath) {
+      return res.status(404).json({ message: 'No report file path found' });
+    }
+    
+    // Check if file exists
+    const fs = await import('fs');
+    const path = await import('path');
+    
+    const possiblePaths = [
+      reportFilePath,
+      path.resolve(reportFilePath),
+      path.join(process.cwd(), 'uploads', 'reports', path.basename(reportFilePath)),
+      path.join('.', 'uploads', 'reports', path.basename(reportFilePath))
+    ];
+    
+    let foundPath = null;
+    for (const testPath of possiblePaths) {
+      if (fs.existsSync(testPath)) {
+        foundPath = testPath;
+        break;
+      }
+    }
+    
+    if (!foundPath) {
+      return res.status(404).json({ 
+        message: 'PDF file not found',
+        attemptedPaths: possiblePaths,
+        reportFilePath: reportFilePath
+      });
+    }
+    
+    const stats = fs.statSync(foundPath);
+    
+    res.json({
+      message: 'PDF file accessible',
+      filePath: foundPath,
+      fileSize: stats.size,
+      lastModified: stats.mtime,
+      testRequestId: id,
+      status: testRequest.status
+    });
+    
+  } catch (error) {
+    console.error('Error testing PDF access:', error);
+    res.status(500).json({ message: 'Error testing PDF access', error: error.message });
+  }
+});
 
 // Receptionist billing endpoints (must come before /:id to avoid route conflicts)
 router.get('/billing/mine', protect, getBillingRequestsForCurrentReceptionist);

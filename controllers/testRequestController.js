@@ -1606,6 +1606,12 @@ export const downloadTestReport = async (req, res) => {
   try {
     const { id } = req.params;
     console.log(`[DOWNLOAD DEBUG] Attempting to download report for test request ID: ${id}`);
+    console.log(`[DOWNLOAD DEBUG] User: ${req.user?.username || req.user?.id}, Role: ${req.user?.role}`);
+    console.log(`[DOWNLOAD DEBUG] Request headers:`, {
+      authorization: req.headers.authorization ? 'Bearer [TOKEN]' : 'No token',
+      accept: req.headers.accept,
+      userAgent: req.headers['user-agent']
+    });
     
     const testRequest = await TestRequest.findById(id);
     
@@ -1709,17 +1715,34 @@ export const downloadTestReport = async (req, res) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
     res.setHeader('Content-Length', stats.size);
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length, Content-Type');
+
+    console.log(`[DOWNLOAD DEBUG] Starting file stream from: ${fullPath}`);
+    console.log(`[DOWNLOAD DEBUG] File size: ${stats.size} bytes`);
 
     // Stream the PDF file
     const readStream = fs.createReadStream(fullPath);
-    readStream.pipe(res);
+    
+    readStream.on('open', () => {
+      console.log(`[DOWNLOAD DEBUG] File stream opened successfully`);
+    });
+    
+    readStream.on('data', (chunk) => {
+      console.log(`[DOWNLOAD DEBUG] Streaming chunk: ${chunk.length} bytes`);
+    });
+    
+    readStream.on('end', () => {
+      console.log(`[DOWNLOAD DEBUG] File stream completed successfully`);
+    });
     
     readStream.on('error', (error) => {
-      console.error('Error streaming PDF:', error);
+      console.error('[DOWNLOAD DEBUG] Error streaming PDF:', error);
       if (!res.headersSent) {
-        res.status(500).json({ message: 'Error streaming PDF file' });
+        res.status(500).json({ message: 'Error streaming PDF file', error: error.message });
       }
     });
+    
+    readStream.pipe(res);
 
   } catch (error) {
     console.error('Error downloading test report:', error);
