@@ -621,11 +621,13 @@ export const assignLabStaff = async (req, res) => {
     }
 
     // ✅ New: Ensure billing is paid before lab assignment
-    if (testRequest.status !== 'Billing_Paid' || testRequest.billing?.status !== 'paid') {
+    const allowedBillingStatuses = ['paid', 'payment_received', 'partially_paid'];
+    if (testRequest.status !== 'Billing_Paid' || !testRequest.billing || !allowedBillingStatuses.includes(testRequest.billing.status)) {
       return res.status(400).json({
         message: 'Billing must be marked as paid before assigning to lab',
         currentStatus: testRequest.status,
-        billingStatus: testRequest.billing?.status || 'not_generated'
+        billingStatus: testRequest.billing?.status || 'not_generated',
+        requiredBillingStatuses: allowedBillingStatuses
       });
     }
 
@@ -713,7 +715,7 @@ export const scheduleSampleCollection = async (req, res) => {
 
     // ✅ Check if billing is completed before scheduling sample collection
     // Allow multiple billing statuses that indicate billing is complete
-    const allowedBillingStatuses = ['payment_received', 'paid', 'generated'];
+    const allowedBillingStatuses = ['payment_received', 'paid', 'generated', 'partially_paid'];
     if (!testRequest.billing || !allowedBillingStatuses.includes(testRequest.billing.status)) {
       console.log('❌ Billing validation failed:', {
         testRequestId: id,
@@ -1015,12 +1017,14 @@ export const startLabTesting = async (req, res) => {
     }
 
     // ✅ NEW: Check if billing is completed and sample collection is done before starting lab testing
-    if (testRequest.status !== 'Sample_Collected' || testRequest.billing?.status !== 'paid') {
+    const allowedBillingStatuses = ['paid', 'payment_received', 'partially_paid'];
+    if (testRequest.status !== 'Sample_Collected' || !testRequest.billing || !allowedBillingStatuses.includes(testRequest.billing.status)) {
       return res.status(400).json({
         message: 'Cannot start lab testing. Billing must be completed and sample collection must be done first.',
         currentStatus: testRequest.status,
         billingStatus: testRequest.billing?.status || 'not_generated',
-        sampleCollected: testRequest.status === 'Sample_Collected'
+        sampleCollected: testRequest.status === 'Sample_Collected',
+        requiredBillingStatuses: allowedBillingStatuses
       });
     }
 
@@ -1102,12 +1106,14 @@ export const completeLabTesting = async (req, res) => {
     }
 
     // ✅ NEW: Check if billing is completed and lab testing is in progress before completing
-    if (testRequest.status !== 'In_Lab_Testing' || testRequest.billing?.status !== 'paid') {
+    const allowedBillingStatuses = ['paid', 'payment_received', 'partially_paid'];
+    if (testRequest.status !== 'In_Lab_Testing' || !testRequest.billing || !allowedBillingStatuses.includes(testRequest.billing.status)) {
       return res.status(400).json({
         message: 'Cannot complete lab testing. Billing must be completed and lab testing must be in progress first.',
         currentStatus: testRequest.status,
         billingStatus: testRequest.billing?.status || 'not_generated',
-        labTestingInProgress: testRequest.status === 'In_Lab_Testing'
+        labTestingInProgress: testRequest.status === 'In_Lab_Testing',
+        requiredBillingStatuses: allowedBillingStatuses
       });
     }
 

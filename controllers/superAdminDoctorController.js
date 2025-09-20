@@ -1178,11 +1178,13 @@ export const reviewTestRequest = async (req, res) => {
 
     // ✅ NEW: Check if billing is completed before allowing approval
     if (action === 'approve') {
-      if (testRequest.status === 'Billing_Pending' || testRequest.billing?.status !== 'paid') {
+      const allowedBillingStatuses = ['paid', 'payment_received', 'partially_paid'];
+      if (testRequest.status === 'Billing_Pending' || !testRequest.billing || !allowedBillingStatuses.includes(testRequest.billing.status)) {
         return res.status(400).json({ 
           message: 'Cannot approve test request. Billing must be completed and paid first.',
           currentStatus: testRequest.status,
-          billingStatus: testRequest.billing?.status || 'not_generated'
+          billingStatus: testRequest.billing?.status || 'not_generated',
+          requiredBillingStatuses: allowedBillingStatuses
         });
       }
     }
