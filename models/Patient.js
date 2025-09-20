@@ -65,6 +65,8 @@ const patientSchema = new mongoose.Schema({
   assignedDoctor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   registeredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   centerCode: { type: String },
+  uhId: { type: String, unique: true }, // UH ID: centerCode + serial number (e.g., 223344001)
+  serialNumber: { type: Number }, // Serial number for this center
   tests: [testSchema],
   history: [historySchema],
   medications: [medicationSchema],

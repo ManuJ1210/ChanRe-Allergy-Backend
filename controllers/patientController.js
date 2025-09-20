@@ -18,6 +18,7 @@ const addPatient = async (req, res) => {
     // For receptionists, we'll be more flexible with centerId
     // If they have a centerId, use it; otherwise, try to get it from the request body
     let patientCenterId = req.user.centerId;
+    let finalCenterCode = centerCode;
     
     if (!patientCenterId) {
       // If user doesn't have centerId, try to get it from request body
@@ -30,10 +31,22 @@ const addPatient = async (req, res) => {
           const center = await Center.findOne({ code: centerCode });
           if (center) {
             patientCenterId = center._id;
+            finalCenterCode = center.code;
           }
         } catch (centerError) {
           console.error('Error finding center by code:', centerError);
         }
+      }
+    } else {
+      // If we have centerId, get the center code
+      try {
+        const Center = (await import('../models/Center.js')).default;
+        const center = await Center.findById(patientCenterId);
+        if (center) {
+          finalCenterCode = center.code;
+        }
+      } catch (centerError) {
+        console.error('Error finding center by ID:', centerError);
       }
     }
     
@@ -49,6 +62,14 @@ const addPatient = async (req, res) => {
       });
     }
 
+    // Generate UH ID: centerCode + serial number
+    // Get the next serial number for this center
+    const lastPatient = await Patient.findOne({ centerId: patientCenterId })
+      .sort({ serialNumber: -1 });
+    
+    const nextSerialNumber = lastPatient ? (lastPatient.serialNumber || 0) + 1 : 1;
+    const uhId = `${finalCenterCode}${nextSerialNumber.toString().padStart(3, '0')}`;
+
     const patientData = {
       name,
       gender,
@@ -58,7 +79,9 @@ const addPatient = async (req, res) => {
       address,
       centerId: patientCenterId,
       assignedDoctor,
-      centerCode,
+      centerCode: finalCenterCode,
+      uhId,
+      serialNumber: nextSerialNumber,
       registeredBy: req.user._id
     };
 
@@ -90,7 +113,8 @@ const getPatients = async (req, res) => {
       query.$or = [
         { name: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } }
+        { phone: { $regex: search, $options: 'i' } },
+        { uhId: { $regex: search, $options: 'i' } }
       ];
     }
     
