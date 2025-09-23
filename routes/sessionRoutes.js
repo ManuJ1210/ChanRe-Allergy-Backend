@@ -8,6 +8,9 @@ import {
   updateSessionActivity,
   logoutSession,
   forceLogoutUserSessions,
+  bulkLogoutSessions,
+  logoutAllSessions,
+  updateSessionLocations,
   getSessionStats
 } from '../controllers/sessionController.js';
 
@@ -32,5 +35,8 @@ router.get('/center/:centerId', protect, ensureCenterIsolation, getSessionsByCen
 router.get('/all', protect, checkSuperAdmin, getAllActiveSessions);
 router.get('/stats', protect, checkSuperAdmin, getSessionStats);
 router.put('/user/:userId/force-logout', protect, checkSuperAdmin, forceLogoutUserSessions);
+router.put('/bulk-logout', protect, checkSuperAdmin, bulkLogoutSessions);
+router.put('/logout-all', protect, checkSuperAdmin, logoutAllSessions);
+router.put('/update-locations', protect, checkSuperAdmin, updateSessionLocations);
 
 export default router;

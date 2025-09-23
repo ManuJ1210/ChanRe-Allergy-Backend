@@ -1,4 +1,5 @@
 import TestRequest from '../models/TestRequest.js';
+import Patient from '../models/Patient.js';
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import mongoose from 'mongoose';
@@ -2562,6 +2563,617 @@ export const getCenterBillingReports = async (req, res) => {
       success: false,
       message: 'Failed to generate center billing reports',
       error: error.message 
+    });
+  }
+};
+
+// Create consultation fee billing (Receptionist action)
+export const createConsultationFeeBilling = async (req, res) => {
+  try {
+    console.log('🚀 createConsultationFeeBilling called');
+    console.log('📋 Request body:', req.body);
+    console.log('👤 User context:', {
+      userId: req.user?._id || req.user?.id,
+      userRole: req.user?.role,
+      userType: req.user?.userType,
+      centerId: req.user?.centerId
+    });
+
+    const { patientId, amount, paymentMethod, notes } = req.body;
+
+    // Validate required fields
+    if (!patientId || !amount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Patient ID and amount are required'
+      });
+    }
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(patientId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid patient ID format'
+      });
+    }
+
+    // Find the patient
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patient not found'
+      });
+    }
+
+    // Check if consultation fee already exists for the current doctor
+    // For reassigned patients, we allow multiple consultation fees (one per doctor)
+    // Reassigned patients are treated as new patients but without registration fee
+    const currentDoctorId = patient.assignedDoctor?._id || patient.assignedDoctor;
+    
+    console.log('🔍 Patient assigned doctor info:', {
+      patientId: patient._id,
+      patientName: patient.name,
+      assignedDoctor: patient.assignedDoctor,
+      assignedDoctorId: patient.assignedDoctor?._id,
+      currentDoctorId: currentDoctorId,
+      note: 'Reassigned patients treated as new patients (no registration fee required)'
+    });
+    
+    const existingConsultationFee = patient.billing && patient.billing.find(bill => 
+      (bill.type === 'consultation' || bill.description?.toLowerCase().includes('consultation')) &&
+      bill.doctorId && bill.doctorId.toString() === currentDoctorId?.toString()
+    );
+
+    if (existingConsultationFee) {
+      return res.status(400).json({
+        success: false,
+        message: 'Consultation fee already exists for this patient with the current doctor'
+      });
+    }
+
+    // Generate invoice number
+    const invoiceNumber = generateInvoiceNumber(patient.centerCode || 'INV', 'CON');
+
+    // Create consultation fee billing record
+    // For reassigned patients, treat them as new patients (no registration fee required)
+    const consultationFee = {
+      type: 'consultation',
+      description: notes || `Doctor consultation fee for ${patient.name}${patient.billing && patient.billing.length > 0 ? ' (reassigned patient)' : ''}`,
+      amount: parseFloat(amount),
+      paymentMethod: paymentMethod || 'cash',
+      status: 'paid',
+      paidBy: req.user.name,
+      paidAt: new Date(),
+      invoiceNumber: invoiceNumber,
+      doctorId: currentDoctorId, // Track which doctor this consultation fee is for
+      createdAt: new Date()
+    };
+    
+    console.log('🔍 Created consultation fee:', {
+      type: consultationFee.type,
+      description: consultationFee.description,
+      amount: consultationFee.amount,
+      doctorId: consultationFee.doctorId,
+      doctorIdType: typeof consultationFee.doctorId,
+      doctorIdString: consultationFee.doctorId?.toString(),
+      currentDoctorId: currentDoctorId,
+      currentDoctorIdType: typeof currentDoctorId,
+      currentDoctorIdString: currentDoctorId?.toString(),
+      invoiceNumber: consultationFee.invoiceNumber
+    });
+
+    // Add billing record to patient
+    if (!patient.billing) {
+      patient.billing = [];
+    }
+    patient.billing.push(consultationFee);
+
+    // Save patient
+    await patient.save();
+
+    console.log('✅ Consultation fee billing created successfully');
+    console.log('📋 Updated patient billing:', patient.billing);
+    console.log('📋 Patient ID:', patient._id);
+    console.log('📋 Patient name:', patient.name);
+    
+    // Verify the billing was actually saved
+    const savedPatient = await Patient.findById(patient._id);
+    console.log('📋 Verification - Saved patient billing:', savedPatient.billing);
+
+    res.status(201).json({
+      success: true,
+      message: 'Consultation fee payment recorded successfully',
+      billing: consultationFee,
+      patient: patient // Return the complete updated patient object
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating consultation fee billing:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to record consultation fee payment',
+      error: error.message
+    });
+  }
+};
+
+// Create registration fee billing (for new patients only)
+export const createRegistrationFeeBilling = async (req, res) => {
+  try {
+    console.log('🚀 createRegistrationFeeBilling called');
+    
+    const { patientId, amount, paymentMethod, notes } = req.body;
+
+    // Validate required fields
+    if (!patientId || !amount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Patient ID and amount are required'
+      });
+    }
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(patientId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid patient ID format'
+      });
+    }
+
+    // Find the patient
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patient not found'
+      });
+    }
+
+    // Check if patient is new (registered within last 24 hours)
+    const isNewPatient = isPatientNew(patient);
+    if (!isNewPatient) {
+      return res.status(400).json({
+        success: false,
+        message: 'Registration fee can only be charged for new patients (registered within 24 hours)'
+      });
+    }
+
+    // Check if registration fee already exists
+    const existingRegistrationFee = patient.billing && patient.billing.find(bill => 
+      bill.type === 'registration'
+    );
+
+    if (existingRegistrationFee) {
+      return res.status(400).json({
+        success: false,
+        message: 'Registration fee already exists for this patient'
+      });
+    }
+
+    // Generate invoice number
+    const invoiceNumber = generateInvoiceNumber(patient.centerCode || 'INV', 'REG');
+
+    // Create registration fee billing record
+    const registrationFee = {
+      type: 'registration',
+      description: notes || `Registration fee for new patient ${patient.name}`,
+      amount: parseFloat(amount),
+      paymentMethod: paymentMethod || 'cash',
+      status: 'paid',
+      paidBy: req.user.name,
+      paidAt: new Date(),
+      invoiceNumber: invoiceNumber,
+      createdAt: new Date()
+    };
+
+    // Add billing record to patient
+    if (!patient.billing) {
+      patient.billing = [];
+    }
+    patient.billing.push(registrationFee);
+
+    // Save patient
+    await patient.save();
+
+    console.log('✅ Registration fee billing created successfully');
+
+    res.status(201).json({
+      success: true,
+      message: 'Registration fee payment recorded successfully',
+      billing: registrationFee,
+      patient: patient
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating registration fee billing:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to record registration fee payment',
+      error: error.message
+    });
+  }
+};
+
+// Create service charges billing
+export const createServiceChargesBilling = async (req, res) => {
+  try {
+    console.log('🚀 createServiceChargesBilling called');
+    
+    const { patientId, services, paymentMethod, notes } = req.body;
+
+    // Validate required fields
+    if (!patientId || !services || !Array.isArray(services) || services.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Patient ID and services array are required'
+      });
+    }
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(patientId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid patient ID format'
+      });
+    }
+
+    // Find the patient
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patient not found'
+      });
+    }
+
+    // Process each service
+    const serviceBills = [];
+    let totalAmount = 0;
+
+    for (const service of services) {
+      if (!service.name || !service.amount) {
+        return res.status(400).json({
+          success: false,
+          message: 'Each service must have a name and amount'
+        });
+      }
+
+      // Generate invoice number for each service
+      const invoiceNumber = generateInvoiceNumber(patient.centerCode || 'INV', 'SRV');
+
+      const serviceBill = {
+        type: 'service',
+        description: service.description || service.name,
+        amount: parseFloat(service.amount),
+        paymentMethod: paymentMethod || 'cash',
+        status: 'paid',
+        paidBy: req.user.name,
+        paidAt: new Date(),
+        invoiceNumber: invoiceNumber,
+        serviceDetails: service.details || '',
+        doctorId: patient.assignedDoctor?._id || patient.assignedDoctor, // Track which doctor this service is for
+        createdAt: new Date()
+      };
+
+      serviceBills.push(serviceBill);
+      totalAmount += parseFloat(service.amount);
+    }
+
+    // Add billing records to patient
+    if (!patient.billing) {
+      patient.billing = [];
+    }
+    patient.billing.push(...serviceBills);
+
+    // Save patient
+    await patient.save();
+
+    console.log('✅ Service charges billing created successfully');
+
+    res.status(201).json({
+      success: true,
+      message: 'Service charges payment recorded successfully',
+      billing: serviceBills,
+      totalAmount: totalAmount,
+      patient: patient
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating service charges billing:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to record service charges payment',
+      error: error.message
+    });
+  }
+};
+
+// Generate invoice for patient
+export const generatePatientInvoice = async (req, res) => {
+  try {
+    console.log('🚀 generatePatientInvoice called');
+    
+    const { patientId, billingIds } = req.body;
+
+    // Validate required fields
+    if (!patientId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Patient ID is required'
+      });
+    }
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(patientId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid patient ID format'
+      });
+    }
+
+    // Find the patient
+    const patient = await Patient.findById(patientId)
+      .populate('centerId', 'name code')
+      .populate('assignedDoctor', 'name');
+    
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patient not found'
+      });
+    }
+
+    // Get billing records
+    let billingRecords = patient.billing || [];
+    
+    console.log('🔍 Original billing records:', billingRecords.map(bill => ({
+      id: bill._id,
+      type: bill.type,
+      description: bill.description,
+      doctorId: bill.doctorId,
+      amount: bill.amount
+    })));
+    
+    // Filter by specific billing IDs if provided
+    if (billingIds && Array.isArray(billingIds) && billingIds.length > 0) {
+      billingRecords = billingRecords.filter(bill => billingIds.includes(bill._id.toString()));
+      console.log('🔍 Filtered by specific billing IDs:', billingRecords.length);
+    } else {
+      // If no specific billing IDs provided, filter by current doctor for consultation fees
+      // This ensures reassigned patients only get invoices for their current doctor's consultation
+      const currentDoctorId = patient.assignedDoctor?._id || patient.assignedDoctor;
+      console.log('🔍 Current doctor ID:', currentDoctorId);
+      
+    // SMART FILTERING: Ensure complete separation for reassigned patients
+    // Only include billing records for the current doctor to prevent merging with old invoices
+    console.log('🔍 SMART FILTERING: Ensuring complete separation for reassigned patients');
+    
+    billingRecords = billingRecords.filter(bill => {
+      // For consultation fees, only include those for the current doctor
+      if (bill.type === 'consultation' || bill.description?.toLowerCase().includes('consultation')) {
+        const hasDoctorId = bill.doctorId && bill.doctorId.toString();
+        const matchesCurrentDoctor = hasDoctorId && currentDoctorId && bill.doctorId.toString() === currentDoctorId.toString();
+        const hasNoDoctorId = !hasDoctorId; // Include old records without doctorId for backward compatibility
+        
+        // For reassigned patients, be strict - only current doctor
+        // For regular patients, be flexible - current doctor OR old records
+        const shouldInclude = matchesCurrentDoctor || hasNoDoctorId;
+        
+        console.log('🔍 Consultation fee check (SMART):', {
+          billId: bill._id,
+          billDoctorId: bill.doctorId,
+          currentDoctorId: currentDoctorId,
+          hasDoctorId: hasDoctorId,
+          matchesCurrentDoctor: matchesCurrentDoctor,
+          hasNoDoctorId: hasNoDoctorId,
+          shouldInclude: shouldInclude,
+          description: bill.description
+        });
+        
+        return shouldInclude;
+      }
+      
+      // For service charges, only include those for the current doctor
+      if (bill.type === 'service') {
+        const hasDoctorId = bill.doctorId && bill.doctorId.toString();
+        const matchesCurrentDoctor = hasDoctorId && currentDoctorId && bill.doctorId.toString() === currentDoctorId.toString();
+        const hasNoDoctorId = !hasDoctorId; // Include old records without doctorId
+        
+        const shouldInclude = matchesCurrentDoctor || hasNoDoctorId;
+        
+        console.log('🔍 Service charge check (SMART):', {
+          billId: bill._id,
+          billDoctorId: bill.doctorId,
+          currentDoctorId: currentDoctorId,
+          hasDoctorId: hasDoctorId,
+          matchesCurrentDoctor: matchesCurrentDoctor,
+          hasNoDoctorId: hasNoDoctorId,
+          shouldInclude: shouldInclude,
+          description: bill.description
+        });
+        
+        return shouldInclude;
+      }
+      
+      // For registration fees, include all (they're not doctor-specific)
+      if (bill.type === 'registration') {
+        console.log('🔍 Registration fee included:', {
+          billId: bill._id,
+          description: bill.description
+        });
+        return true;
+      }
+      
+      // For other types, include all
+      return true;
+    });
+      
+      console.log('🔍 Filtered billing records:', billingRecords.map(bill => ({
+        id: bill._id,
+        type: bill.type,
+        description: bill.description,
+        doctorId: bill.doctorId,
+        amount: bill.amount
+      })));
+    }
+
+    if (billingRecords.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No billing records found for invoice generation'
+      });
+    }
+
+    // Calculate totals by type
+    const totals = {
+      consultation: 0,
+      registration: 0,
+      service: 0,
+      test: 0,
+      medication: 0,
+      total: 0
+    };
+
+    billingRecords.forEach(bill => {
+      totals[bill.type] = (totals[bill.type] || 0) + bill.amount;
+      totals.total += bill.amount;
+    });
+
+    // Generate invoice number
+    const invoiceNumber = generateInvoiceNumber(patient.centerCode || 'INV', 'INV');
+
+    // Get the original creator from the first billing record
+    const originalCreator = billingRecords.length > 0 ? billingRecords[0].paidBy : req.user.name;
+
+    // Get the doctor name from the consultation fee (for reassigned patients)
+    const consultationFee = billingRecords.find(bill => 
+      bill.type === 'consultation' || bill.description?.toLowerCase().includes('consultation')
+    );
+    const doctorName = consultationFee?.doctorId ? 
+      (await User.findById(consultationFee.doctorId))?.name || patient.assignedDoctor?.name || 'Not Assigned' :
+      patient.assignedDoctor?.name || 'Not Assigned';
+
+    // Create invoice data
+    const invoice = {
+      invoiceNumber: invoiceNumber,
+      patient: {
+        name: patient.name,
+        uhId: patient.uhId,
+        phone: patient.phone,
+        email: patient.email,
+        address: patient.address,
+        age: patient.age,
+        gender: patient.gender
+      },
+      center: {
+        name: patient.centerId?.name || 'Medical Center',
+        code: patient.centerId?.code || 'MC'
+      },
+      doctor: doctorName,
+      billingRecords: billingRecords,
+      totals: totals,
+      generatedAt: new Date(),
+      generatedBy: originalCreator
+    };
+
+    console.log('✅ Invoice generated successfully');
+
+    res.status(200).json({
+      success: true,
+      message: 'Invoice generated successfully',
+      invoice: invoice
+    });
+
+  } catch (error) {
+    console.error('❌ Error generating invoice:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate invoice',
+      error: error.message
+    });
+  }
+};
+
+// Helper function to generate invoice number
+const generateInvoiceNumber = (centerCode, type) => {
+  const timestamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+  const randomSuffix = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  return `${centerCode}-${type}-${timestamp}-${randomSuffix}`;
+};
+
+// Helper function to check if patient is new
+const isPatientNew = (patient) => {
+  const registrationDate = new Date(patient.createdAt);
+  const now = new Date();
+  const hoursDifference = (now - registrationDate) / (1000 * 60 * 60);
+  return hoursDifference <= 24;
+};
+
+// Update existing billing records with missing invoice numbers
+export const updateMissingInvoiceNumbers = async (req, res) => {
+  try {
+    console.log('🚀 updateMissingInvoiceNumbers called');
+    
+    // Find all patients with billing records that don't have invoice numbers
+    const patients = await Patient.find({
+      'billing.invoiceNumber': { $exists: false }
+    });
+
+    let updatedCount = 0;
+    let totalBillingRecords = 0;
+
+    for (const patient of patients) {
+      if (patient.billing && patient.billing.length > 0) {
+        let patientUpdated = false;
+        
+        for (const billingRecord of patient.billing) {
+          totalBillingRecords++;
+          
+          if (!billingRecord.invoiceNumber) {
+            // Generate invoice number based on billing type
+            let typeCode = 'BILL';
+            if (billingRecord.type === 'consultation') {
+              typeCode = 'CON';
+            } else if (billingRecord.type === 'registration') {
+              typeCode = 'REG';
+            } else if (billingRecord.type === 'service') {
+              typeCode = 'SRV';
+            } else if (billingRecord.type === 'test') {
+              typeCode = 'TST';
+            } else if (billingRecord.type === 'medication') {
+              typeCode = 'MED';
+            }
+            
+            billingRecord.invoiceNumber = generateInvoiceNumber(patient.centerCode || 'INV', typeCode);
+            patientUpdated = true;
+            updatedCount++;
+          }
+        }
+        
+        if (patientUpdated) {
+          await patient.save();
+          console.log(`✅ Updated invoice numbers for patient: ${patient.name}`);
+        }
+      }
+    }
+
+    console.log(`✅ Updated ${updatedCount} billing records with invoice numbers`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Invoice numbers updated successfully',
+      updatedRecords: updatedCount,
+      totalRecords: totalBillingRecords,
+      patientsProcessed: patients.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating missing invoice numbers:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update missing invoice numbers',
+      error: error.message
     });
   }
 };

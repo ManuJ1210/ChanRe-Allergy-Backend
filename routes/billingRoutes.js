@@ -13,7 +13,12 @@ import {
   getCenterBillingReports,
   testBillingData,
   fixCenterData,
-  validateCenterData
+  validateCenterData,
+  createConsultationFeeBilling,
+  createRegistrationFeeBilling,
+  createServiceChargesBilling,
+  generatePatientInvoice,
+  updateMissingInvoiceNumbers
 } from '../controllers/billingController.js';
 import { generateInvoicePDF } from '../controllers/invoiceController.js';
 
@@ -21,6 +26,21 @@ const router = express.Router();
 
 // All routes are protected
 router.use(protect);
+
+// Create consultation fee billing (Receptionist action)
+router.post('/consultation-fee', ensureCenterIsolation, createConsultationFeeBilling);
+
+// Create registration fee billing (for new patients only)
+router.post('/registration-fee', ensureCenterIsolation, createRegistrationFeeBilling);
+
+// Create service charges billing
+router.post('/service-charges', ensureCenterIsolation, createServiceChargesBilling);
+
+// Generate patient invoice
+router.post('/generate-invoice', ensureCenterIsolation, generatePatientInvoice);
+
+// Update missing invoice numbers for existing billing records
+router.post('/update-missing-invoice-numbers', checkSuperAdmin, updateMissingInvoiceNumbers);
 
 // Generate bill for a test request (Receptionist action)
 router.put('/test-requests/:id/generate', ensureCenterIsolation, generateBillForTestRequest);

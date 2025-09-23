@@ -1804,7 +1804,7 @@ export const getBillingRequestsForCurrentReceptionist = async (req, res) => {
     const testRequests = await TestRequest.find(query)
       .select('testType testDescription status urgency notes centerId centerName centerCode doctorName patientName patientPhone patientAddress billing createdAt updatedAt workflowStage')
       .populate('doctorId', 'name email phone')
-      .populate('patientId', 'name phone address age gender')
+      .populate('patientId', 'name phone address age gender uhId')
       .sort({ createdAt: -1 })
       .lean(); // Use lean() for better performance
 
@@ -1813,6 +1813,17 @@ export const getBillingRequestsForCurrentReceptionist = async (req, res) => {
       acc[req.status] = (acc[req.status] || 0) + 1;
       return acc;
     }, {}));
+    
+    // Debug: Log first request to see populated data
+    if (testRequests.length > 0) {
+      console.log('🔍 First request populated data:', {
+        id: testRequests[0]._id,
+        patientName: testRequests[0].patientName,
+        patient: testRequests[0].patientId,
+        doctor: testRequests[0].doctorId,
+        status: testRequests[0].status
+      });
+    }
 
     res.status(200).json(testRequests);
   } catch (error) {

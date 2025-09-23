@@ -79,6 +79,7 @@ const addPatient = async (req, res) => {
       address,
       centerId: patientCenterId,
       assignedDoctor,
+      assignedAt: assignedDoctor ? new Date() : undefined, // Set assignedAt if doctor is assigned
       centerCode: finalCenterCode,
       uhId,
       serialNumber: nextSerialNumber,
@@ -185,6 +186,78 @@ const getPatients = async (req, res) => {
   } catch (error) {
     console.error('Error fetching patients:', error);
     res.status(500).json({ message: 'Failed to fetch patients' });
+  }
+};
+
+// Get all patients for superadmin (for consultation fee billing)
+const getAllPatients = async (req, res) => {
+  try {
+    // Only allow superadmin to access this endpoint
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ 
+        success: false,
+        message: 'Access denied. Only superadmin can access all patients.' 
+      });
+    }
+
+    const { page = 1, limit = 100, search = '', status = '' } = req.query;
+    
+    let query = {};
+    
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+        { uhId: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    if (status) {
+      query.status = status;
+    }
+
+    const patients = await Patient.find(query)
+      .populate('centerId', 'name code')
+      .populate('assignedDoctor', 'name')
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .sort({ createdAt: -1 });
+
+    // Manually populate assignedDoctor if it's still a string
+    const User = (await import('../models/User.js')).default;
+    for (let patient of patients) {
+      if (patient.assignedDoctor && typeof patient.assignedDoctor === 'string') {
+        try {
+          const doctor = await User.findById(patient.assignedDoctor).select('name');
+          if (doctor) {
+            patient.assignedDoctor = doctor;
+          }
+        } catch (userError) {
+          console.log('❌ Error finding doctor for patient:', patient._id, userError.message);
+        }
+      }
+    }
+
+    const total = await Patient.countDocuments(query);
+
+    res.json({
+      success: true,
+      patients,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / limit),
+        total,
+        limit: parseInt(limit)
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching all patients:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to fetch patients',
+      error: error.message 
+    });
   }
 };
 
@@ -304,7 +377,11 @@ const updatePatient = async (req, res) => {
     if (phone || contact) patient.phone = phone || contact; // Handle both phone and contact fields
     if (email) patient.email = email;
     if (address) patient.address = address;
-    if (assignedDoctor) patient.assignedDoctor = assignedDoctor;
+    if (assignedDoctor) {
+      patient.assignedDoctor = assignedDoctor;
+      // Set assignedAt when a doctor is assigned
+      patient.assignedAt = new Date();
+    }
     if (centerCode) patient.centerCode = centerCode;
 
     await patient.save();
@@ -698,10 +775,164 @@ const addSampleData = async (req, res) => {
   }
 };
 
+// Mark patient as viewed by doctor
+const markPatientAsViewed = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    const doctorId = req.user._id;
+
+    // Check if patient exists and is assigned to this doctor
+    const patient = await Patient.findById(patientId).populate('assignedDoctor');
+    
+    if (!patient) {
+      return res.status(404).json({ message: 'Patient not found' });
+    }
+
+    if (!patient.assignedDoctor || patient.assignedDoctor._id.toString() !== doctorId.toString()) {
+      return res.status(403).json({ message: 'Patient is not assigned to you' });
+    }
+
+    // Mark as viewed if not already viewed
+    if (!patient.viewedByDoctor) {
+      patient.viewedByDoctor = true;
+      patient.viewedAt = new Date();
+      await patient.save();
+    }
+
+    res.json({ 
+      message: 'Patient marked as viewed',
+      patient: {
+        _id: patient._id,
+        name: patient.name,
+        viewedByDoctor: patient.viewedByDoctor,
+        viewedAt: patient.viewedAt
+      }
+    });
+  } catch (error) {
+    console.error('❌ Mark patient as viewed error:', error);
+    res.status(500).json({ message: 'Failed to mark patient as viewed' });
+  }
+};
+
+// Reassign doctor for existing patient
+const reassignDoctor = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    const { doctorId, reason } = req.body;
+
+    if (!doctorId) {
+      return res.status(400).json({ message: 'Doctor ID is required' });
+    }
+
+    // Find the patient
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({ message: 'Patient not found' });
+    }
+
+    // Verify the doctor exists
+    const User = (await import('../models/User.js')).default;
+    const doctor = await User.findById(doctorId);
+    if (!doctor || doctor.role !== 'doctor') {
+      return res.status(404).json({ message: 'Doctor not found' });
+    }
+
+    // Store previous assignment info
+    const previousDoctor = patient.assignedDoctor;
+    const previousAssignmentDate = patient.assignedAt;
+
+    // Update the patient with new doctor assignment
+    patient.assignedDoctor = doctorId;
+    patient.assignedAt = new Date();
+    patient.viewedByDoctor = false; // Reset viewed status
+    patient.viewedAt = null; // Reset viewed date
+
+    // Add reassignment history
+    if (!patient.reassignmentHistory) {
+      patient.reassignmentHistory = [];
+    }
+    
+    patient.reassignmentHistory.push({
+      previousDoctor: previousDoctor,
+      newDoctor: doctorId,
+      reassignedAt: new Date(),
+      reassignedBy: req.user._id,
+      reason: reason || 'No reason provided'
+    });
+
+    await patient.save();
+
+    // Populate the response with doctor names
+    const updatedPatient = await Patient.findById(patientId)
+      .populate('assignedDoctor', 'name')
+      .populate('reassignmentHistory.previousDoctor', 'name')
+      .populate('reassignmentHistory.newDoctor', 'name')
+      .populate('reassignmentHistory.reassignedBy', 'name');
+
+    res.json({ 
+      message: 'Doctor reassigned successfully',
+      patient: updatedPatient
+    });
+  } catch (error) {
+    console.error('❌ Reassign doctor error:', error);
+    res.status(500).json({ message: 'Failed to reassign doctor' });
+  }
+};
+
+// Record patient revisit
+const recordPatientRevisit = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    const { revisitReason, assignedDoctor } = req.body;
+
+    // Find the patient
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({ message: 'Patient not found' });
+    }
+
+    // Create revisit record
+    const revisitRecord = {
+      revisitDate: new Date(),
+      reason: revisitReason || 'Follow-up consultation',
+      assignedDoctor: assignedDoctor || patient.assignedDoctor,
+      recordedBy: req.user._id
+    };
+
+    // Add to patient's revisit history
+    if (!patient.revisitHistory) {
+      patient.revisitHistory = [];
+    }
+    patient.revisitHistory.push(revisitRecord);
+
+    // Update last visit date
+    patient.lastVisitDate = new Date();
+    patient.visitCount = (patient.visitCount || 0) + 1;
+
+    await patient.save();
+
+    // Populate the response
+    const updatedPatient = await Patient.findById(patientId)
+      .populate('assignedDoctor', 'name')
+      .populate('revisitHistory.assignedDoctor', 'name')
+      .populate('revisitHistory.recordedBy', 'name');
+
+    res.json({ 
+      message: 'Patient revisit recorded successfully',
+      patient: updatedPatient,
+      revisitRecord: revisitRecord
+    });
+  } catch (error) {
+    console.error('❌ Record patient revisit error:', error);
+    res.status(500).json({ message: 'Failed to record patient revisit' });
+  }
+};
+
 // ✅ Named exports (required for ESM import)
 export {
   addPatient,
   getPatients,
+  getAllPatients,
   getPatientById,
   updatePatient,
   deletePatient,
@@ -714,5 +945,8 @@ export {
   getPatientMedications,
   getPatientFollowUps,
   addSampleData,
-  testEndpoint
+  testEndpoint,
+  markPatientAsViewed,
+  reassignDoctor,
+  recordPatientRevisit
 };

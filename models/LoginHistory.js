@@ -95,7 +95,7 @@ loginHistorySchema.statics.getCenterLoginHistory = function(centerId, limit = 10
 // Static method to get recent logins across all centers
 loginHistorySchema.statics.getRecentLogins = function(limit = 100) {
   return this.find({ loginStatus: 'success' })
-    .populate('userId', 'name username email role userType')
+    .populate('userId', 'name username email role')
     .populate('centerId', 'name address code')
     .sort({ loginTime: -1 })
     .limit(limit);

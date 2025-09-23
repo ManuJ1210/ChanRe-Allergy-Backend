@@ -2,6 +2,7 @@ import express from 'express';
 import {
   addPatient,
   getPatients,
+  getAllPatients,
   getPatientById,
   updatePatient,
   deletePatient,
@@ -13,7 +14,10 @@ import {
   getPatientMedications,
   getPatientFollowUps,
   addSampleData,
-  testEndpoint
+  testEndpoint,
+  markPatientAsViewed,
+  reassignDoctor,
+  recordPatientRevisit
 } from '../controllers/patientController.js';
 import { protect, ensureCenterIsolation, ensureDoctor, ensureDoctorOrReceptionist, ensureCenterStaffOrDoctor } from '../middleware/authMiddleware.js';
 
@@ -26,6 +30,7 @@ router.use(ensureCenterIsolation);
 
 // Patient Routes - Center admin, center receptionist, and center doctor can create patients
 router.post('/', ensureCenterStaffOrDoctor, addPatient);
+router.get('/all', getAllPatients); // Special route for superadmin to get all patients
 router.get('/', getPatients);
 router.get('/receptionist/mine', getPatientsByReceptionist);
 router.get('/doctor/:doctorId', getPatientsByDoctor);
@@ -42,6 +47,13 @@ router.get('/:id/show-tests', getPatientAndTests);
 router.get('/:id/history', ensureCenterStaffOrDoctor, getPatientHistory);
 router.get('/:id/medications', ensureCenterStaffOrDoctor, getPatientMedications);
 router.get('/:id/follow-ups', ensureCenterStaffOrDoctor, getPatientFollowUps);
+
+// Doctor-specific routes
+router.put('/:patientId/mark-viewed', ensureDoctor, markPatientAsViewed);
+
+// Reassignment and revisit routes
+router.put('/:patientId/reassign-doctor', ensureCenterStaffOrDoctor, reassignDoctor);
+router.post('/:patientId/record-revisit', ensureCenterStaffOrDoctor, recordPatientRevisit);
 
 // Temporary route for adding sample data (remove in production)
 router.post('/:id/add-sample-data', ensureCenterStaffOrDoctor, addSampleData);
