@@ -97,6 +97,12 @@ const testRequestSchema = new mongoose.Schema({
       default: 'not_generated'
     },
     amount: { type: Number, default: 0 },
+    paidAmount: { type: Number, default: 0 }, // ✅ NEW: Track paid amount
+    paymentStatus: { 
+      type: String, 
+      enum: ['pending', 'partial', 'completed'], 
+      default: 'pending' 
+    }, // ✅ NEW: Track payment status
     currency: { type: String, default: 'INR' },
     items: [
       {
@@ -115,13 +121,17 @@ const testRequestSchema = new mongoose.Schema({
     paidAt: Date,
     paidBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     notes: String,
+    paymentNotes: String, // ✅ NEW: Payment-specific notes
     // ✅ NEW: Enhanced payment verification fields
     paymentMethod: String,
     transactionId: String,
     receiptUpload: String,
     verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     verifiedAt: Date,
-    verificationNotes: String
+    verificationNotes: String,
+    // ✅ NEW: Update tracking fields
+    updatedBy: String, // ✅ NEW: Track who updated
+    updatedAt: Date // ✅ NEW: Track when updated
   },
   
   // Lab staff assignment

@@ -3178,3 +3178,278 @@ export const updateMissingInvoiceNumbers = async (req, res) => {
   }
 };
 
+// Update billing details for a test request (Center Admin action)
+export const updateBillDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount, description, invoiceNumber, status, updatedBy, updatedAt } = req.body;
+
+    console.log('🔄 Updating bill details for test request:', id);
+    console.log('📝 Update data:', { amount, description, invoiceNumber, status, updatedBy });
+
+    // Find the test request
+    const testRequest = await TestRequest.findById(id);
+    if (!testRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'Test request not found'
+      });
+    }
+
+    // Check if billing exists
+    if (!testRequest.billing) {
+      return res.status(400).json({
+        success: false,
+        message: 'No billing information found for this test request'
+      });
+    }
+
+    // Update billing details
+    if (amount !== undefined) testRequest.billing.amount = amount;
+    if (description !== undefined) testRequest.billing.description = description;
+    if (invoiceNumber !== undefined) testRequest.billing.invoiceNumber = invoiceNumber;
+    if (status !== undefined) testRequest.billing.status = status;
+    
+    // Add update tracking
+    testRequest.billing.updatedBy = updatedBy || 'Center Admin';
+    testRequest.billing.updatedAt = updatedAt || new Date();
+    testRequest.updatedAt = new Date();
+
+    // Save the updated test request
+    const updated = await testRequest.save();
+
+    console.log('✅ Bill details updated successfully');
+    console.log('📋 Updated billing:', updated.billing);
+
+    res.status(200).json({
+      success: true,
+      message: 'Bill details updated successfully',
+      billing: updated.billing,
+      testRequestId: updated._id
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating bill details:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update bill details',
+      error: error.message
+    });
+  }
+};
+
+// Update payment status for a test request (Center Admin action)
+export const updatePaymentStatus = async (req, res) => {
+  try {
+    console.log('🚀 updatePaymentStatus function called');
+    console.log('📋 Request params:', req.params);
+    console.log('📋 Request body:', req.body);
+    console.log('👤 User:', req.user);
+    
+    // Handle case where user might not be available (testing without middleware)
+    if (!req.user) {
+      console.log('⚠️ No user found - testing without middleware');
+    }
+    
+    const { id } = req.params;
+    const { paidAmount, paymentStatus, paymentMethod, notes, updatedBy, updatedAt } = req.body;
+
+    console.log('💰 Updating payment status for test request:', id);
+    console.log('📝 Payment update data:', { paidAmount, paymentStatus, paymentMethod, notes, updatedBy });
+
+    // Find the test request
+    console.log('🔍 Searching for test request with ID:', id);
+    let testRequest;
+    try {
+      testRequest = await TestRequest.findById(id);
+      console.log('✅ Database query completed');
+    } catch (dbError) {
+      console.error('❌ Database error finding test request:', dbError);
+      return res.status(500).json({
+        success: false,
+        message: 'Database error while finding test request',
+        error: dbError.message
+      });
+    }
+    
+    if (!testRequest) {
+      console.log('❌ Test request not found:', id);
+      return res.status(404).json({
+        success: false,
+        message: 'Test request not found'
+      });
+    }
+
+    console.log('✅ Test request found:', {
+      id: testRequest._id,
+      patientName: testRequest.patientName,
+      testType: testRequest.testType,
+      hasBilling: !!testRequest.billing,
+      billingStructure: testRequest.billing ? Object.keys(testRequest.billing) : 'No billing'
+    });
+
+    // Check if billing exists
+    if (!testRequest.billing) {
+      console.log('❌ No billing information found for test request:', id);
+      return res.status(400).json({
+        success: false,
+        message: 'No billing information found for this test request'
+      });
+    }
+
+    const totalAmount = testRequest.billing.amount || 0;
+    console.log('💰 Current billing info:', {
+      totalAmount,
+      currentPaidAmount: testRequest.billing.paidAmount || 0,
+      currentStatus: testRequest.billing.status,
+      currentPaymentStatus: testRequest.billing.paymentStatus
+    });
+    
+    // Convert paidAmount to number to ensure proper type
+    const numericPaidAmount = parseFloat(paidAmount) || 0;
+    console.log('💰 Converting paid amount:', { original: paidAmount, converted: numericPaidAmount });
+    
+    // Validate data types before proceeding
+    console.log('🔍 Data type validation:', {
+      paidAmount: typeof numericPaidAmount,
+      paymentMethod: typeof paymentMethod,
+      paymentStatus: typeof paymentStatus,
+      notes: typeof notes,
+      updatedBy: typeof updatedBy
+    });
+    
+    // Validate paid amount
+    if (numericPaidAmount < 0 || numericPaidAmount > totalAmount) {
+      console.log('❌ Invalid paid amount:', { paidAmount: numericPaidAmount, totalAmount });
+      return res.status(400).json({
+        success: false,
+        message: `Paid amount must be between 0 and ${totalAmount}`
+      });
+    }
+
+    // Ensure billing object is properly initialized
+    if (!testRequest.billing) {
+      testRequest.billing = {};
+    }
+
+    // Initialize missing fields with defaults if they don't exist
+    if (testRequest.billing.paidAmount === undefined) {
+      testRequest.billing.paidAmount = 0;
+    }
+    if (testRequest.billing.paymentStatus === undefined) {
+      testRequest.billing.paymentStatus = 'pending';
+    }
+    if (testRequest.billing.paymentNotes === undefined) {
+      testRequest.billing.paymentNotes = '';
+    }
+    if (testRequest.billing.paymentMethod === undefined) {
+      testRequest.billing.paymentMethod = 'cash';
+    }
+
+    // Update payment information
+    testRequest.billing.paidAmount = numericPaidAmount;
+    testRequest.billing.paymentMethod = paymentMethod || testRequest.billing.paymentMethod || 'cash';
+    testRequest.billing.paymentNotes = notes || testRequest.billing.paymentNotes || '';
+    
+    // Update status based on payment amount
+    if (numericPaidAmount >= totalAmount) {
+      testRequest.billing.status = 'paid';
+      testRequest.billing.paymentStatus = 'completed';
+    } else if (numericPaidAmount > 0) {
+      testRequest.billing.status = 'partially_paid'; // ✅ Fixed: Use correct enum value
+      testRequest.billing.paymentStatus = 'partial';
+    } else {
+      testRequest.billing.status = 'generated';
+      testRequest.billing.paymentStatus = 'pending';
+    }
+    
+    // Override status if explicitly provided
+    if (paymentStatus) {
+      testRequest.billing.paymentStatus = paymentStatus;
+      if (paymentStatus === 'completed') {
+        testRequest.billing.status = 'paid';
+      } else if (paymentStatus === 'partial') {
+        testRequest.billing.status = 'partially_paid'; // ✅ Fixed: Use correct enum value
+      } else {
+        testRequest.billing.status = 'generated';
+      }
+    }
+    
+    // Add update tracking
+    testRequest.billing.updatedBy = updatedBy || 'Center Admin';
+    testRequest.billing.updatedAt = updatedAt || new Date();
+    testRequest.updatedAt = new Date();
+
+    console.log('💾 Saving updated test request...');
+    console.log('📋 Test request before save:', {
+      id: testRequest._id,
+      billing: testRequest.billing,
+      billingKeys: testRequest.billing ? Object.keys(testRequest.billing) : 'No billing'
+    });
+    
+    // Save the updated test request with error handling
+    let updated;
+    try {
+      updated = await testRequest.save();
+      console.log('✅ Test request saved successfully');
+    } catch (saveError) {
+      console.error('❌ Error saving test request:', saveError);
+      console.error('❌ Save error details:', {
+        message: saveError.message,
+        name: saveError.name,
+        code: saveError.code,
+        errors: saveError.errors,
+        stack: saveError.stack
+      });
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to save test request',
+        error: saveError.message,
+        details: saveError.errors || saveError.code,
+        fullError: {
+          name: saveError.name,
+          code: saveError.code,
+          errors: saveError.errors,
+          stack: saveError.stack
+        }
+      });
+    }
+
+    console.log('✅ Payment status updated successfully');
+    console.log('💰 Updated payment info:', {
+      totalAmount: updated.billing.amount,
+      paidAmount: updated.billing.paidAmount,
+      remainingAmount: updated.billing.amount - updated.billing.paidAmount,
+      status: updated.billing.status,
+      paymentStatus: updated.billing.paymentStatus
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Payment status updated successfully',
+      billing: updated.billing,
+      testRequestId: updated._id,
+      paymentSummary: {
+        totalAmount: updated.billing.amount,
+        paidAmount: updated.billing.paidAmount,
+        remainingAmount: updated.billing.amount - updated.billing.paidAmount,
+        status: updated.billing.status,
+        paymentStatus: updated.billing.paymentStatus
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating payment status:', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update payment status',
+      error: error.message
+    });
+  }
+};
+

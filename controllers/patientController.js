@@ -98,7 +98,7 @@ const addPatient = async (req, res) => {
 
 const getPatients = async (req, res) => {
   try {
-    const { page = 1, limit = 10, search = '', status = '', centerId } = req.query;
+    const { page = 1, limit = 10, search = '', status = '', centerId, includeReassigned } = req.query;
     
     let query = {};
     
@@ -107,16 +107,41 @@ const getPatients = async (req, res) => {
       query.centerId = centerId;
     } else {
       // For other users, use their assigned centerId
-      query.centerId = req.user.centerId;
+      if (includeReassigned === 'true') {
+        // Include reassigned patients - patients that were originally from this center
+        // or are currently assigned to this center
+        query.$or = [
+          { centerId: req.user.centerId }, // Current center patients
+          { originalCenterId: req.user.centerId }, // Originally from this center
+          { 'reassignmentHistory.centerId': req.user.centerId } // Reassigned to/from this center
+        ];
+      } else {
+        // Default behavior - only current center patients
+        query.centerId = req.user.centerId;
+      }
     }
     
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-        { uhId: { $regex: search, $options: 'i' } }
-      ];
+      const searchQuery = {
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+          { phone: { $regex: search, $options: 'i' } },
+          { uhId: { $regex: search, $options: 'i' } }
+        ]
+      };
+      
+      if (query.$or) {
+        // If we already have $or for center filtering, combine them
+        query = {
+          $and: [
+            query,
+            searchQuery
+          ]
+        };
+      } else {
+        query.$or = searchQuery.$or;
+      }
     }
     
     if (status) {

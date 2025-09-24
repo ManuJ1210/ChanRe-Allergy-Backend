@@ -18,7 +18,9 @@ import {
   createRegistrationFeeBilling,
   createServiceChargesBilling,
   generatePatientInvoice,
-  updateMissingInvoiceNumbers
+  updateMissingInvoiceNumbers,
+  updateBillDetails,
+  updatePaymentStatus
 } from '../controllers/billingController.js';
 import { generateInvoicePDF } from '../controllers/invoiceController.js';
 
@@ -47,6 +49,12 @@ router.put('/test-requests/:id/generate', ensureCenterIsolation, generateBillFor
 
 // Mark bill as paid (Receptionist action) - with file upload support
 router.put('/test-requests/:id/mark-paid', ensureCenterIsolation, uploadReceipt.single('receiptFile'), markBillPaidForTestRequest);
+
+// Update bill details (Center Admin action)
+router.put('/test-requests/:id/update-bill', ensureCenterIsolation, updateBillDetails);
+
+// Update payment status (Center Admin action)
+router.put('/test-requests/:id/update-payment', ensureCenterIsolation, updatePaymentStatus);
 
 // Get billing information for a test request
 router.get('/test-requests/:id/billing', ensureCenterIsolation, getBillingInfo);
