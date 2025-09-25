@@ -65,10 +65,14 @@ const billingSchema = new mongoose.Schema({
 
 const reassignmentHistorySchema = new mongoose.Schema({
   previousDoctor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  previousDoctorName: { type: String }, // Store doctor name for easier access
   newDoctor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  newDoctorName: { type: String }, // Store doctor name for easier access
   reassignedAt: { type: Date, default: Date.now },
-  reassignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  reason: { type: String }
+  reassignedBy: { type: String }, // Name of person who reassigned
+  reason: { type: String, required: true },
+  notes: { type: String }, // Additional notes about reassignment
+  createdAt: { type: Date, default: Date.now }
 });
 
 const revisitHistorySchema = new mongoose.Schema({
@@ -92,6 +96,8 @@ const patientSchema = new mongoose.Schema({
     required: true,
   },
   assignedDoctor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  currentDoctor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Current doctor (for reassigned patients)
+  isReassigned: { type: Boolean, default: false }, // Flag to indicate if patient has been reassigned
   assignedAt: { type: Date }, // Track when patient was assigned to doctor
   viewedByDoctor: { type: Boolean, default: false }, // Track if doctor has viewed this patient
   viewedAt: { type: Date }, // Track when doctor first viewed the patient
@@ -106,7 +112,9 @@ const patientSchema = new mongoose.Schema({
   medications: [medicationSchema],
   followUps: [followUpSchema],
   billing: [billingSchema],
+  reassignedBilling: [billingSchema], // Separate billing records for reassigned patients
   reassignmentHistory: [reassignmentHistorySchema], // Track doctor reassignments
+  lastReassignedAt: { type: Date }, // Track when patient was last reassigned
   revisitHistory: [revisitHistorySchema] // Track patient revisits
 }, { timestamps: true });
 

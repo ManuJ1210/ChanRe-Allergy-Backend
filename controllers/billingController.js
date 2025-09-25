@@ -1947,7 +1947,7 @@ export const getBillingReports = async (req, res) => {
           console.log('🔍 Center ID found in database:', existingCenterIds.includes(centerId));
           
         } catch (error) {
-          console.log('🔍 Error checking center formats:', error.message);
+          console.log('🔍 Error checking with ObjectId:', error.message);
         }
       }
     }
@@ -2026,18 +2026,6 @@ export const getBillingReports = async (req, res) => {
         generatedAt: item.billing?.generatedAt,
         createdAt: item.createdAt,
         status: item.billing?.status
-      })));
-    }
-    
-    // Debug: Show sample data for different periods
-    if (billingData.length > 0) {
-      console.log('🔍 Sample billing data:', billingData.slice(0, 3).map(item => ({
-        patientName: item.patientName,
-        amount: item.billing?.amount,
-        status: item.billing?.status,
-        generatedAt: item.billing?.generatedAt,
-        createdAt: item.createdAt,
-        centerName: item.centerName
       })));
     } else {
       console.log('🔍 No billing records found. Checking if there are any TestRequest records...');
@@ -2316,7 +2304,7 @@ export const getCenterBillingReports = async (req, res) => {
       dateFilter = {
         $or: [
           { 'billing.generatedAt': { $gte: start, $lte: end } },
-          { createdAt: { $gte: start, $lte: end } }
+          { createdAt: { $gte: start, 'billing.generatedAt': { $gte: start, $lte: end }, $lte: end } }
         ]
       };
     }
@@ -2572,14 +2560,8 @@ export const createConsultationFeeBilling = async (req, res) => {
   try {
     console.log('🚀 createConsultationFeeBilling called');
     console.log('📋 Request body:', req.body);
-    console.log('👤 User context:', {
-      userId: req.user?._id || req.user?.id,
-      userRole: req.user?.role,
-      userType: req.user?.userType,
-      centerId: req.user?.centerId
-    });
 
-    const { patientId, amount, paymentMethod, notes } = req.body;
+    const { patientId, doctorId, amount, paymentMethod, notes, isReassignedEntry, reassignedEntryId } = req.body;
 
     // Validate required fields
     if (!patientId || !amount) {
@@ -2609,7 +2591,7 @@ export const createConsultationFeeBilling = async (req, res) => {
     // Check if consultation fee already exists for the current doctor
     // For reassigned patients, we allow multiple consultation fees (one per doctor)
     // Reassigned patients are treated as new patients but without registration fee
-    const currentDoctorId = patient.assignedDoctor?._id || patient.assignedDoctor;
+    const currentDoctorId = doctorId || patient.assignedDoctor?._id || patient.assignedDoctor;
     
     console.log('🔍 Patient assigned doctor info:', {
       patientId: patient._id,
@@ -2617,6 +2599,9 @@ export const createConsultationFeeBilling = async (req, res) => {
       assignedDoctor: patient.assignedDoctor,
       assignedDoctorId: patient.assignedDoctor?._id,
       currentDoctorId: currentDoctorId,
+      doctorIdFromRequest: doctorId,
+      isReassignedEntry: isReassignedEntry,
+      reassignedEntryId: reassignedEntryId,
       note: 'Reassigned patients treated as new patients (no registration fee required)'
     });
     
@@ -2639,7 +2624,7 @@ export const createConsultationFeeBilling = async (req, res) => {
     // For reassigned patients, treat them as new patients (no registration fee required)
     const consultationFee = {
       type: 'consultation',
-      description: notes || `Doctor consultation fee for ${patient.name}${patient.billing && patient.billing.length > 0 ? ' (reassigned patient)' : ''}`,
+      description: notes || `Doctor consultation fee for ${patient.name}${isReassignedEntry ? ' (reassigned patient)' : ''}`,
       amount: parseFloat(amount),
       paymentMethod: paymentMethod || 'cash',
       status: 'paid',
@@ -2647,6 +2632,8 @@ export const createConsultationFeeBilling = async (req, res) => {
       paidAt: new Date(),
       invoiceNumber: invoiceNumber,
       doctorId: currentDoctorId, // Track which doctor this consultation fee is for
+      isReassignedEntry: isReassignedEntry || false,
+      reassignedEntryId: reassignedEntryId || null,
       createdAt: new Date()
     };
     
@@ -2663,14 +2650,18 @@ export const createConsultationFeeBilling = async (req, res) => {
       invoiceNumber: consultationFee.invoiceNumber
     });
 
-    // Add billing record to patient
-    if (!patient.billing) {
-      patient.billing = [];
-    }
-    patient.billing.push(consultationFee);
+    // Add billing record to patient ONLY if it's not a reassigned entry
+    if (!isReassignedEntry) {
+      if (!patient.billing) {
+        patient.billing = [];
+      }
+      patient.billing.push(consultationFee);
 
-    // Save patient
-    await patient.save();
+      // Save patient
+      await patient.save();
+    } else {
+      console.log('⚠️ Skipping adding billing record to patient - this is a reassigned entry');
+    }
 
     console.log('✅ Consultation fee billing created successfully');
     console.log('📋 Updated patient billing:', patient.billing);
@@ -2800,7 +2791,7 @@ export const createServiceChargesBilling = async (req, res) => {
   try {
     console.log('🚀 createServiceChargesBilling called');
     
-    const { patientId, services, paymentMethod, notes } = req.body;
+    const { patientId, services, paymentMethod, notes, doctorId, isReassignedEntry, reassignedEntryId } = req.body;
 
     // Validate required fields
     if (!patientId || !services || !Array.isArray(services) || services.length === 0) {
@@ -2852,7 +2843,9 @@ export const createServiceChargesBilling = async (req, res) => {
         paidAt: new Date(),
         invoiceNumber: invoiceNumber,
         serviceDetails: service.details || '',
-        doctorId: patient.assignedDoctor?._id || patient.assignedDoctor, // Track which doctor this service is for
+        doctorId: doctorId || patient.assignedDoctor?._id || patient.assignedDoctor, // Track which doctor this service is for
+        isReassignedEntry: isReassignedEntry || false,
+        reassignedEntryId: reassignedEntryId || null,
         createdAt: new Date()
       };
 
@@ -2860,14 +2853,18 @@ export const createServiceChargesBilling = async (req, res) => {
       totalAmount += parseFloat(service.amount);
     }
 
-    // Add billing records to patient
-    if (!patient.billing) {
-      patient.billing = [];
-    }
-    patient.billing.push(...serviceBills);
+    // Add billing records to patient ONLY if it's not a reassigned entry
+    if (!isReassignedEntry) {
+      if (!patient.billing) {
+        patient.billing = [];
+      }
+      patient.billing.push(...serviceBills);
 
-    // Save patient
-    await patient.save();
+      // Save patient
+      await patient.save();
+    } else {
+      console.log('⚠️ Skipping adding service billing records to patient - this is a reassigned entry');
+    }
 
     console.log('✅ Service charges billing created successfully');
 
@@ -2894,7 +2891,7 @@ export const generatePatientInvoice = async (req, res) => {
   try {
     console.log('🚀 generatePatientInvoice called');
     
-    const { patientId, billingIds } = req.body;
+    const { patientId, billingIds, isReassignedEntry, reassignedEntryId, currentDoctorId } = req.body;
 
     // Validate required fields
     if (!patientId) {
@@ -2924,105 +2921,60 @@ export const generatePatientInvoice = async (req, res) => {
       });
     }
 
-    // Get billing records
-    let billingRecords = patient.billing || [];
+    // Get billing records and EXCLUDE reassigned billing records
+    let billingRecords = (patient.billing || []).filter(bill => {
+      // Exclude any billing records that are marked as reassigned entries
+      return !bill.isReassignedEntry;
+    });
     
-    console.log('🔍 Original billing records:', billingRecords.map(bill => ({
+    console.log('🔍 Original billing records (excluding reassigned):', billingRecords.map(bill => ({
       id: bill._id,
       type: bill.type,
       description: bill.description,
       doctorId: bill.doctorId,
-      amount: bill.amount
+      amount: bill.amount,
+      isReassignedEntry: bill.isReassignedEntry,
+      reassignedEntryId: bill.reassignedEntryId,
+      createdAt: bill.createdAt
     })));
     
     // Filter by specific billing IDs if provided
     if (billingIds && Array.isArray(billingIds) && billingIds.length > 0) {
       billingRecords = billingRecords.filter(bill => billingIds.includes(bill._id.toString()));
       console.log('🔍 Filtered by specific billing IDs:', billingRecords.length);
-    } else {
-      // If no specific billing IDs provided, filter by current doctor for consultation fees
-      // This ensures reassigned patients only get invoices for their current doctor's consultation
-      const currentDoctorId = patient.assignedDoctor?._id || patient.assignedDoctor;
-      console.log('🔍 Current doctor ID:', currentDoctorId);
+    }
+
+    // For reassigned entries, create completely fresh invoices with only reassigned billing
+    if (isReassignedEntry && currentDoctorId) {
+      console.log('🔍 Creating fresh invoice for reassigned entry - current doctor:', currentDoctorId);
       
-    // SMART FILTERING: Ensure complete separation for reassigned patients
-    // Only include billing records for the current doctor to prevent merging with old invoices
-    console.log('🔍 SMART FILTERING: Ensuring complete separation for reassigned patients');
-    
-    billingRecords = billingRecords.filter(bill => {
-      // For consultation fees, only include those for the current doctor
-      if (bill.type === 'consultation' || bill.description?.toLowerCase().includes('consultation')) {
-        const hasDoctorId = bill.doctorId && bill.doctorId.toString();
-        const matchesCurrentDoctor = hasDoctorId && currentDoctorId && bill.doctorId.toString() === currentDoctorId.toString();
-        const hasNoDoctorId = !hasDoctorId; // Include old records without doctorId for backward compatibility
-        
-        // For reassigned patients, be strict - only current doctor
-        // For regular patients, be flexible - current doctor OR old records
-        const shouldInclude = matchesCurrentDoctor || hasNoDoctorId;
-        
-        console.log('🔍 Consultation fee check (SMART):', {
-          billId: bill._id,
-          billDoctorId: bill.doctorId,
-          currentDoctorId: currentDoctorId,
-          hasDoctorId: hasDoctorId,
-          matchesCurrentDoctor: matchesCurrentDoctor,
-          hasNoDoctorId: hasNoDoctorId,
-          shouldInclude: shouldInclude,
-          description: bill.description
-        });
-        
-        return shouldInclude;
-      }
+      // Only include billing records that are specifically for this reassigned entry
+      billingRecords = billingRecords.filter(bill => {
+        // Include only billing records that are marked as reassigned entries
+        // This ensures completely separate invoices for reassigned patients
+        return bill.isReassignedEntry && 
+               bill.reassignedEntryId === reassignedEntryId &&
+               bill.doctorId && 
+               bill.doctorId.toString() === currentDoctorId.toString();
+      });
       
-      // For service charges, only include those for the current doctor
-      if (bill.type === 'service') {
-        const hasDoctorId = bill.doctorId && bill.doctorId.toString();
-        const matchesCurrentDoctor = hasDoctorId && currentDoctorId && bill.doctorId.toString() === currentDoctorId.toString();
-        const hasNoDoctorId = !hasDoctorId; // Include old records without doctorId
-        
-        const shouldInclude = matchesCurrentDoctor || hasNoDoctorId;
-        
-        console.log('🔍 Service charge check (SMART):', {
-          billId: bill._id,
-          billDoctorId: bill.doctorId,
-          currentDoctorId: currentDoctorId,
-          hasDoctorId: hasDoctorId,
-          matchesCurrentDoctor: matchesCurrentDoctor,
-          hasNoDoctorId: hasNoDoctorId,
-          shouldInclude: shouldInclude,
-          description: bill.description
-        });
-        
-        return shouldInclude;
-      }
+      console.log('🔍 Fresh billing records for reassigned entry:', billingRecords.length);
       
-      // For registration fees, include all (they're not doctor-specific)
-      if (bill.type === 'registration') {
-        console.log('🔍 Registration fee included:', {
-          billId: bill._id,
-          description: bill.description
-        });
-        return true;
-      }
-      
-      // For other types, include all
-      return true;
-    });
-      
-      console.log('🔍 Filtered billing records:', billingRecords.map(bill => ({
-        id: bill._id,
-        type: bill.type,
-        description: bill.description,
-        doctorId: bill.doctorId,
-        amount: bill.amount
-      })));
+      // If no reassigned billing records exist yet, that's okay - they'll get a fresh invoice
+      // when they make their first payment after reassignment
     }
 
     if (billingRecords.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'No billing records found for invoice generation'
-      });
+      // For reassigned patients, allow empty invoice generation
+      if (isReassignedEntry) {
+        console.log('🔍 No billing records for reassigned patient - generating empty invoice');
+        billingRecords = []; // Allow empty billing records for reassigned patients
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'No billing records found for invoice generation'
+        });
+      }
     }
 
     // Calculate totals by type
@@ -3035,13 +2987,17 @@ export const generatePatientInvoice = async (req, res) => {
       total: 0
     };
 
-    billingRecords.forEach(bill => {
-      totals[bill.type] = (totals[bill.type] || 0) + bill.amount;
-      totals.total += bill.amount;
-    });
+    // Only calculate totals if there are billing records
+    if (billingRecords.length > 0) {
+      billingRecords.forEach(bill => {
+        totals[bill.type] = (totals[bill.type] || 0) + bill.amount;
+        totals.total += bill.amount;
+      });
+    }
 
-    // Generate invoice number
-    const invoiceNumber = generateInvoiceNumber(patient.centerCode || 'INV', 'INV');
+    // Generate invoice number - special format for reassigned patients
+    const invoicePrefix = isReassignedEntry ? 'REASSIGN' : 'INV';
+    const invoiceNumber = generateInvoiceNumber(patient.centerCode || invoicePrefix, invoicePrefix);
 
     // Get the original creator from the first billing record
     const originalCreator = billingRecords.length > 0 ? billingRecords[0].paidBy : req.user.name;
@@ -3057,6 +3013,8 @@ export const generatePatientInvoice = async (req, res) => {
     // Create invoice data
     const invoice = {
       invoiceNumber: invoiceNumber,
+      isReassignedEntry: isReassignedEntry || false,
+      reassignedEntryId: reassignedEntryId || null,
       patient: {
         name: patient.name,
         uhId: patient.uhId,
@@ -3064,7 +3022,8 @@ export const generatePatientInvoice = async (req, res) => {
         email: patient.email,
         address: patient.address,
         age: patient.age,
-        gender: patient.gender
+        gender: patient.gender,
+        reassignmentHistory: patient.reassignmentHistory || []
       },
       center: {
         name: patient.centerId?.name || 'Medical Center',
@@ -3452,4 +3411,5 @@ export const updatePaymentStatus = async (req, res) => {
     });
   }
 };
+
 

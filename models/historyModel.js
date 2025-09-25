@@ -46,13 +46,20 @@ const historySchema = new mongoose.Schema({
   ituAdmissions: String,
   ituAdmissionsDuration: Number,
   coughWheezeFrequency: String,
+  coughWheezeDuration: Number,
   intervalSymptoms: String,
+  intervalSymptomsDuration: Number,
   nightCoughFrequency: String,
+  nightCoughDuration: Number,
   earlyMorningCough: String,
+  earlyMorningCoughDuration: Number,
   exerciseInducedSymptoms: String,
+  exerciseInducedSymptomsDuration: Number,
   familySmoking: String,
+  familySmokingDuration: Number,
   petsAtHome: String,
-  
+  petsAtHomeDuration: Number,
+    
   // Triggers
   triggersUrtis: Boolean,
   triggersColdWeather: Boolean,

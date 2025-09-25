@@ -30,6 +30,9 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import billingRoutes from './routes/billingRoutes.js';
 import sessionRoutes from './routes/sessionRoutes.js';
 import loginHistoryRoutes from './routes/loginHistoryRoutes.js';
+import reassignedPatientRoutes from './routes/reassignedPatientRoutes.js';
+import reassignRoutes from './routes/reassignRoutes.js';
+import reassignedInvoiceRoutes from './routes/reassignedInvoiceRoutes.js';
 
 
 dotenv.config();
@@ -139,6 +142,9 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/login-history', loginHistoryRoutes);
+app.use('/api/reassigned-patients', reassignedPatientRoutes);
+app.use('/api/patients', reassignRoutes);
+app.use('/api/reassigned-invoices', reassignedInvoiceRoutes);
 
 
 // Use environment variable or fallback to local MongoDB

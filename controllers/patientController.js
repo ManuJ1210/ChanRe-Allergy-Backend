@@ -151,6 +151,7 @@ const getPatients = async (req, res) => {
     const patients = await Patient.find(query)
       .populate('centerId', 'name code')
       .populate('assignedDoctor', 'name')
+      .populate('currentDoctor', 'name')
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ createdAt: -1 });
@@ -245,6 +246,7 @@ const getAllPatients = async (req, res) => {
     const patients = await Patient.find(query)
       .populate('centerId', 'name code')
       .populate('assignedDoctor', 'name')
+      .populate('currentDoctor', 'name')
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ createdAt: -1 });
@@ -293,6 +295,7 @@ const getPatientById = async (req, res) => {
     const patient = await Patient.findById(req.params.id)
       .populate('centerId', 'name code')
       .populate('assignedDoctor', 'name')
+      .populate('currentDoctor', 'name')
       .populate('registeredBy', 'name');
     
     if (!patient) {
@@ -571,7 +574,8 @@ const getPatientsByReceptionist = async (req, res) => {
   try {
     const patients = await Patient.find({ registeredBy: req.user._id })
       .populate('centerId', 'name code')
-      .populate('assignedDoctor', 'name');
+      .populate('assignedDoctor', 'name')
+      .populate('currentDoctor', 'name');
     res.json(patients);
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch patients', error: err.message });
@@ -586,6 +590,7 @@ const getPatientsByDoctor = async (req, res) => {
     const patients = await Patient.find({ assignedDoctor: doctorId })
       .populate('centerId', 'name code')
       .populate('assignedDoctor', 'name')
+      .populate('currentDoctor', 'name')
       .select('name age gender phone email address centerId assignedDoctor');
     
     // Manually populate assignedDoctor if it's still a string
@@ -890,6 +895,7 @@ const reassignDoctor = async (req, res) => {
     // Populate the response with doctor names
     const updatedPatient = await Patient.findById(patientId)
       .populate('assignedDoctor', 'name')
+      .populate('currentDoctor', 'name')
       .populate('reassignmentHistory.previousDoctor', 'name')
       .populate('reassignmentHistory.newDoctor', 'name')
       .populate('reassignmentHistory.reassignedBy', 'name');
@@ -939,6 +945,7 @@ const recordPatientRevisit = async (req, res) => {
     // Populate the response
     const updatedPatient = await Patient.findById(patientId)
       .populate('assignedDoctor', 'name')
+      .populate('currentDoctor', 'name')
       .populate('revisitHistory.assignedDoctor', 'name')
       .populate('revisitHistory.recordedBy', 'name');
 
