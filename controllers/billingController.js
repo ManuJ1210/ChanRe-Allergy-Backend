@@ -3566,7 +3566,10 @@ export const updatePaymentStatus = async (req, res) => {
 export const recordPatientPayment = async (req, res) => {
   try {
     console.log('🚀 recordPatientPayment called');
-    const { patientId, amount, paymentMethod, notes } = req.body;
+    console.log('📋 Request body:', req.body);
+    console.log('👤 User:', req.user?.id || req.user?._id, req.user?.name);
+    
+    const { patientId, amount, paymentMethod, paymentType, notes } = req.body;
 
     if (!patientId || !amount) {
       return res.status(400).json({
@@ -3576,7 +3579,7 @@ export const recordPatientPayment = async (req, res) => {
     }
 
     // Find the patient with billing
-    const patient = await Patient.findById(patientId);
+    const patient = await Patient.findById(patientId).populate('billing');
     if (!patient) {
       return res.status(404).json({
         success: false,
@@ -3584,7 +3587,26 @@ export const recordPatientPayment = async (req, res) => {
       });
     }
 
+    console.log('📋 Patient found:', {
+      id: patient._id,
+      name: patient.name,
+      billingLength: patient.billing?.length,
+      billing: patient.billing?.map(b => ({
+        type: b.type,
+        amount: b.amount,
+        paidAmount: b.paidAmount,
+        status: b.status
+      }))
+    });
+
     const numericAmount = parseFloat(amount);
+    if (isNaN(numericAmount) || numericAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid payment amount'
+      });
+    }
+
     const collectionAmount = numericAmount;
 
     // Update billing records to mark as paid
@@ -3594,54 +3616,98 @@ export const recordPatientPayment = async (req, res) => {
       for (const bill of patient.billing) {
         if (remainingAmount <= 0) break;
         
-        const billAmount = bill.amount || 0;
-        const currentPaid = bill.paidAmount || 0;
+        const billAmount = parseFloat(bill.amount) || 0;
+        const currentPaid = parseFloat(bill.paidAmount) || 0;
         const remainingBill = billAmount - currentPaid;
+        
+        console.log('📋 Processing bill:', {
+          type: bill.type,
+          billAmount,
+          currentPaid,
+          remainingBill,
+          remainingAmount
+        });
         
         if (remainingBill > 0) {
           const toPay = Math.min(remainingAmount, remainingBill);
           
-          // Update the billing record
-          bill.paidAmount = currentPaid + toPay;
+          // Update the billing record safely
+          bill.paidAmount = (currentPaid + toPay).toString();
           bill.paymentMethod = paymentMethod || 'cash';
-          bill.paidBy = req.user.name;
+          bill.paidBy = req.user?.name || req.user?.userName || 'Unknown';
           bill.paidAt = new Date();
           
           if (bill.paidAmount >= billAmount) {
             bill.status = 'paid';
-          } else if (bill.paidAmount > 0) {
+          } else if (parseFloat(bill.paidAmount) > 0) {
             bill.status = 'partially_paid';
           }
+          
+          console.log('📋 Bill updated:', {
+            type: bill.type,
+            paidAmount: bill.paidAmount,
+            status: bill.status
+          });
           
           remainingAmount -= toPay;
         }
       }
+    } else {
+      console.log('⚠️ No billing records found for patient');
+      // Return success even if no billing - this could be intentional for partial payments
     }
 
+    console.log('💾 Saving patient...');
     await patient.save();
+    console.log('✅ Patient saved successfully');
 
-    // LOG PAYMENT TRANSACTION
+    // LOG PAYMENT TRANSACTION - Direct billing payment
     try {
-      const paymentData = {
-        amount: collectionAmount,
-        paymentMethod: paymentMethod || 'cash',
-        paymentType: 'mixed',
-        status: 'completed',
-        notes: notes,
-        currency: 'INR'
-      };
-
-      const metadata = {
-        source: 'web',
-        ipAddress: req.ip || req.connection?.remoteAddress,
-        userAgent: req.headers?.['user-agent']
-      };
-
-      // Use patient ID as reference for payment logs
-      await logPaymentTransaction(paymentData, `patient-${patientId}`, req.user.id || req.user._id, metadata);
-      console.log('✅ Patient payment transaction logged successfully');
+      // For patient billing payments (not test-request related), we'll implement direct payment logging
+      const userId = req.user?.id || req.user?._id;
+      if (!userId) {
+        console.warn('⚠️ No user ID found for payment logging - skipping payment log');
+        // Continue without logging
+      } else {
+        // Create a simplified payment log entry
+        try {
+          const paymentLog = new PaymentLog({
+            testRequestId: null, // No test request involved
+            patientId: patientId,
+            patientName: patient.name,
+            centerId: patient.centerId || req.user.centerId,
+            amount: collectionAmount,
+            currency: 'INR',
+            paymentMethod: paymentMethod || 'cash',
+            paymentType: paymentType || 'partial',
+            status: 'completed',
+            statusHistory: [
+              {
+                status: 'completed',
+                timestamp: new Date(),
+                notes: notes || 'Payment recorded for billing'
+              }
+            ],
+            processedBy: userId,
+            notes: notes || 'Payment recorded from billing UI',
+            metadata: {
+              source: 'billing_ui',
+              ipAddress: req.ip || req.connection?.remoteAddress || 'unknown',
+              userAgent: req.headers?.['user-agent'] || 'unknown'
+            },
+            createdAt: new Date()
+          });
+          
+          await paymentLog.save();
+          console.log('✅ Patient payment log created successfully');
+        } catch (directLogError) {
+          console.error('❌ Error creating direct payment log:', directLogError);
+          // Continue without failing the operation
+        }
+      }
     } catch (paymentLogError) {
-      console.error('❌ Error logging payment transaction:', paymentLogError);
+      console.error('❌ Error in payment logging section:', paymentLogError);
+      // Don't fail the whole operation
     }
 
     console.log('✅ Patient payment recorded successfully');
@@ -3653,10 +3719,18 @@ export const recordPatientPayment = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error recording patient payment:', error);
+    console.error('❌ Error stack:', error.stack);
+    console.error('❌ Error details:', {
+      message: error.message,
+      name: error.name,
+      code: error.code
+    });
+    
     res.status(500).json({
       success: false,
       message: 'Failed to record payment',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message,
+      ...(process.env.NODE_ENV !== 'production' && { stack: error.stack })
     });
   }
 };
