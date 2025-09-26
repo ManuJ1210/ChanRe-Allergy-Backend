@@ -3,6 +3,13 @@ import Patient from '../models/Patient.js';
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
 import mongoose from 'mongoose';
+import PaymentLog from '../models/PaymentLog.js';
+import { 
+  logPaymentTransaction, 
+  logPaymentStatusUpdate,
+  logPaymentCancellation,
+  logPaymentRefund 
+} from '../services/paymentLogService.js';
 
 // Generate bill for a test request (Receptionist action)
 export const generateBillForTestRequest = async (req, res) => {
@@ -681,6 +688,33 @@ export const markBillPaidForTestRequest = async (req, res) => {
     const updated = await testRequest.save();
     console.log('✅ Bill marked as paid successfully');
 
+    // LOG PAYMENT TRANSACTION
+    try {
+      const paymentData = {
+        amount: paymentAmount,
+        paymentMethod: paymentMethod || 'Cash',
+        transactionId: transactionId,
+        receiptFile: receiptFileName,
+        notes: verificationNotes,
+        verificationNotes: verificationNotes,
+        currency: testRequest.billing?.currency || 'INR',
+        paymentType: 'test',
+        status: newPaidAmount >= totalAmount ? 'completed' : 'completed', // Log as completed since it's processed
+      };
+
+      const metadata = {
+        source: 'web',
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        userAgent: req.headers?.['user-agent'],
+      };
+
+      await logPaymentTransaction(paymentData, testRequest._id, req.user.id || req.user._id, metadata);
+      console.log('✅ Payment transaction logged successfully');
+    } catch (paymentLogError) {
+      console.error('❌ Error logging payment transaction:', paymentLogError);
+      // Continue execution - payment logging failure should not stop the transaction
+    }
+
     // Notify stakeholders (lab staff only when fully paid)
     try {
       // Ensure we have a proper patient name
@@ -921,6 +955,15 @@ export const cancelBill = async (req, res) => {
     // Save to database
     const updated = await testRequest.save();
     console.log('✅ Bill cancelled successfully');
+
+    // LOG PAYMENT CANCELLATION
+    try {
+      await logPaymentCancellation(testRequest._id, req.user.id || req.user._id, cancellationReason);
+      console.log('✅ Payment cancellation logged successfully');
+    } catch (paymentLogError) {
+      console.error('❌ Error logging payment cancellation:', paymentLogError);
+      // Continue execution - payment logging failure should not stop the transaction
+    }
 
     // Notify stakeholders
     try {
@@ -2672,6 +2715,41 @@ export const createConsultationFeeBilling = async (req, res) => {
     const savedPatient = await Patient.findById(patient._id);
     console.log('📋 Verification - Saved patient billing:', savedPatient.billing);
 
+    // LOG CONSULTATION FEE PAYMENT
+    try {
+      const paymentData = {
+        amount: parseFloat(amount),
+        paymentMethod: paymentMethod || 'cash',
+        paymentType: 'consultation',
+        status: 'completed',
+        notes: notes,
+        currency: 'INR',
+        invoiceNumber: consultationFee.invoiceNumber
+      };
+
+      const metadata = {
+        source: 'web',
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        userAgent: req.headers?.['user-agent'],
+        isReassignedEntry: isReassignedEntry || false,
+        reassignedEntryId: reassignedEntryId || null
+      };
+
+      // Create a virtual test request ID for consultation fees
+      const consultationTestRequestId = `consultation-${patient._id}-${Date.now()}`;
+      
+      await logPaymentTransaction(
+        paymentData, 
+        consultationTestRequestId, 
+        req.user.id || req.user._id, 
+        metadata
+      );
+      console.log('✅ Consultation fee payment logged successfully');
+    } catch (paymentLogError) {
+      console.error('❌ Error logging consultation fee payment:', paymentLogError);
+      // Continue execution - payment logging failure should not stop the transaction
+    }
+
     res.status(201).json({
       success: true,
       message: 'Consultation fee payment recorded successfully',
@@ -2694,7 +2772,7 @@ export const createRegistrationFeeBilling = async (req, res) => {
   try {
     console.log('🚀 createRegistrationFeeBilling called');
     
-    const { patientId, amount, paymentMethod, notes } = req.body;
+    const { patientId, registrationFee, serviceCharges, amount, paymentMethod, notes } = req.body;
 
     // Validate required fields
     if (!patientId || !amount) {
@@ -2742,39 +2820,90 @@ export const createRegistrationFeeBilling = async (req, res) => {
       });
     }
 
-    // Generate invoice number
-    const invoiceNumber = generateInvoiceNumber(patient.centerCode || 'INV', 'REG');
+    // If frontend sends separate registrationFee and serviceCharges, create separate billing records
+    if (registrationFee && serviceCharges) {
+      const billingRecords = [];
 
-    // Create registration fee billing record
-    const registrationFee = {
-      type: 'registration',
-      description: notes || `Registration fee for new patient ${patient.name}`,
-      amount: parseFloat(amount),
-      paymentMethod: paymentMethod || 'cash',
-      status: 'paid',
-      paidBy: req.user.name,
-      paidAt: new Date(),
-      invoiceNumber: invoiceNumber,
-      createdAt: new Date()
-    };
+      // Create registration fee billing record
+      const registrationInvoiceNumber = generateInvoiceNumber(patient.centerCode || 'INV', 'REG');
+      const registrationBill = {
+        type: 'registration',
+        description: `Registration fee for new patient ${patient.name}`,
+        amount: parseFloat(registrationFee),
+        paymentMethod: paymentMethod || 'cash',
+        status: 'paid',
+        paidBy: req.user.name,
+        paidAt: new Date(),
+        invoiceNumber: registrationInvoiceNumber,
+        createdAt: new Date()
+      };
+      billingRecords.push(registrationBill);
 
-    // Add billing record to patient
-    if (!patient.billing) {
-      patient.billing = [];
+      // Create service charges billing record
+      const serviceInvoiceNumber = generateInvoiceNumber(patient.centerCode || 'INV', 'SRV');
+      const serviceBill = {
+        type: 'service',
+        description: `Service charges for new patient ${patient.name}`,
+        amount: parseFloat(serviceCharges),
+        paymentMethod: paymentMethod || 'cash',
+        status: 'paid',
+        paidBy: req.user.name,
+        paidAt: new Date(),
+        invoiceNumber: serviceInvoiceNumber,
+        createdAt: new Date()
+      };
+      billingRecords.push(serviceBill);
+
+      // Add billing records to patient
+      if (!patient.billing) {
+        patient.billing = [];
+      }
+      patient.billing.push(...billingRecords);
+
+      // Save patient
+      await patient.save();
+
+      console.log('✅ Registration and service charges billing created successfully');
+
+      res.status(201).json({
+        success: true,
+        message: 'Registration and service charges payment recorded successfully',
+        billing: billingRecords,
+        patient: patient
+      });
+    } else {
+      // Legacy single record approach
+      const invoiceNumber = generateInvoiceNumber(patient.centerCode || 'INV', 'REG');
+      const registrationFeeRecord = {
+        type: 'registration',
+        description: notes || `Registration fee for new patient ${patient.name}`,
+        amount: parseFloat(amount),
+        paymentMethod: paymentMethod || 'cash',
+        status: 'paid',
+        paidBy: req.user.name,
+        paidAt: new Date(),
+        invoiceNumber: invoiceNumber,
+        createdAt: new Date()
+      };
+
+      // Add billing record to patient
+      if (!patient.billing) {
+        patient.billing = [];
+      }
+      patient.billing.push(registrationFeeRecord);
+
+      // Save patient
+      await patient.save();
+
+      console.log('✅ Registration fee billing created successfully');
+
+      res.status(201).json({
+        success: true,
+        message: 'Registration fee payment recorded successfully',
+        billing: registrationFeeRecord,
+        patient: patient
+      });
     }
-    patient.billing.push(registrationFee);
-
-    // Save patient
-    await patient.save();
-
-    console.log('✅ Registration fee billing created successfully');
-
-    res.status(201).json({
-      success: true,
-      message: 'Registration fee payment recorded successfully',
-      billing: registrationFee,
-      patient: patient
-    });
 
   } catch (error) {
     console.error('❌ Error creating registration fee billing:', error);
@@ -3374,6 +3503,27 @@ export const updatePaymentStatus = async (req, res) => {
       });
     }
 
+    // LOG PAYMENT STATUS UPDATE
+    try {
+      const previousStatus = testRequest.billing?.status || 'not_generated';
+      const currentStatus = updated.billing?.status;
+      
+      if (currentStatus !== previousStatus) {
+        await logPaymentStatusUpdate(
+          testRequest._id,
+          previousStatus,
+          currentStatus,
+          req.user.id || req.user._id,
+          `Payment status updated by admin`,
+          `Updated payment amount to ${numericPaidAmount}, status changed from ${previousStatus} to ${currentStatus}`
+        );
+        console.log('✅ Payment status update logged successfully');
+      }
+    } catch (paymentLogError) {
+      console.error('❌ Error logging payment status update:', paymentLogError);
+      // Continue execution - logging failure should not stop the transaction
+    }
+
     console.log('✅ Payment status updated successfully');
     console.log('💰 Updated payment info:', {
       totalAmount: updated.billing.amount,
@@ -3407,6 +3557,247 @@ export const updatePaymentStatus = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to update payment status',
+      error: error.message
+    });
+  }
+};
+
+// Record payment against patient billing (NEW WORKFLOW)
+export const recordPatientPayment = async (req, res) => {
+  try {
+    console.log('🚀 recordPatientPayment called');
+    const { patientId, amount, paymentMethod, notes } = req.body;
+
+    if (!patientId || !amount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Patient ID and amount are required'
+      });
+    }
+
+    // Find the patient with billing
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patient not found'
+      });
+    }
+
+    const numericAmount = parseFloat(amount);
+    const collectionAmount = numericAmount;
+
+    // Update billing records to mark as paid
+    if (patient.billing && patient.billing.length > 0) {
+      let remainingAmount = collectionAmount;
+      
+      for (const bill of patient.billing) {
+        if (remainingAmount <= 0) break;
+        
+        const billAmount = bill.amount || 0;
+        const currentPaid = bill.paidAmount || 0;
+        const remainingBill = billAmount - currentPaid;
+        
+        if (remainingBill > 0) {
+          const toPay = Math.min(remainingAmount, remainingBill);
+          
+          // Update the billing record
+          bill.paidAmount = currentPaid + toPay;
+          bill.paymentMethod = paymentMethod || 'cash';
+          bill.paidBy = req.user.name;
+          bill.paidAt = new Date();
+          
+          if (bill.paidAmount >= billAmount) {
+            bill.status = 'paid';
+          } else if (bill.paidAmount > 0) {
+            bill.status = 'partially_paid';
+          }
+          
+          remainingAmount -= toPay;
+        }
+      }
+    }
+
+    await patient.save();
+
+    // LOG PAYMENT TRANSACTION
+    try {
+      const paymentData = {
+        amount: collectionAmount,
+        paymentMethod: paymentMethod || 'cash',
+        paymentType: 'mixed',
+        status: 'completed',
+        notes: notes,
+        currency: 'INR'
+      };
+
+      const metadata = {
+        source: 'web',
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        userAgent: req.headers?.['user-agent']
+      };
+
+      // Use patient ID as reference for payment logs
+      await logPaymentTransaction(paymentData, `patient-${patientId}`, req.user.id || req.user._id, metadata);
+      console.log('✅ Patient payment transaction logged successfully');
+    } catch (paymentLogError) {
+      console.error('❌ Error logging payment transaction:', paymentLogError);
+    }
+
+    console.log('✅ Patient payment recorded successfully');
+    res.status(200).json({
+      success: true,
+      message: 'Payment recorded successfully',
+      patient: patient
+    });
+
+  } catch (error) {
+    console.error('❌ Error recording patient payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to record payment',
+      error: error.message
+    });
+  }
+};
+
+// Record partial payments (NEW WORKFLOW)
+export const recordPartialPayment = async (req, res) => {
+  try {
+    console.log('🚀 recordPartialPayment called');
+    const { patientId, payments, paymentMethod, notes } = req.body;
+
+    if (!patientId || !payments) {
+      return res.status(400).json({
+        success: false,
+        message: 'Patient ID and payments breakdown are required'
+      });
+    }
+
+    // Find the patient
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patient not found'
+      });
+    }
+
+    let totalPaid = 0;
+    const { consultation, registration, service } = payments;
+
+    // Update consultation payments
+    if (consultation && consultation > 0) {
+      const consultationFee = patient.billing?.find(bill => 
+        bill.type === 'consultation' || bill.description?.toLowerCase().includes('consultation')
+      );
+      if (consultationFee) {
+        const currentPaid = consultationFee.paidAmount || 0;
+        consultationFee.paidAmount = currentPaid + consultation;
+        consultationFee.paymentMethod = paymentMethod || 'cash';
+        consultationFee.paidBy = req.user.name;
+        consultationFee.paidAt = new Date();
+        
+        if (consultationFee.paidAmount >= consultationFee.amount) {
+          consultationFee.status = 'paid';
+        } else if (consultationFee.paidAmount > 0) {
+          consultationFee.status = 'partially_paid';
+        }
+        
+        totalPaid += consultation;
+      }
+    }
+
+    // Update registration payments
+    if (registration && registration > 0) {
+      const registrationFee = patient.billing?.find(bill => bill.type === 'registration');
+      if (registrationFee) {
+        const currentPaid = registrationFee.paidAmount || 0;
+        registrationFee.paidAmount = currentPaid + registration;
+        registrationFee.paymentMethod = paymentMethod || 'cash';
+        registrationFee.paidBy = req.user.name;
+        registrationFee.paidAt = new Date();
+        
+        if (registrationFee.paidAmount >= registrationFee.amount) {
+          registrationFee.status = 'paid';
+        } else if (registrationFee.paidAmount > 0) {
+          registrationFee.status = 'partially_paid';
+        }
+        
+        totalPaid += registration;
+      }
+    }
+
+    // Update service payments
+    if (service && service > 0) {
+      const serviceBills = patient.billing?.filter(bill => bill.type === 'service') || [];
+      let remainingServiceAmount = service;
+      
+      for (const serviceBill of serviceBills) {
+        if (remainingServiceAmount <= 0) break;
+        
+        const billAmount = serviceBill.amount || 0;
+        const currentPaid = serviceBill.paidAmount || 0;
+        const remainingBill = billAmount - currentPaid;
+        
+        if (remainingBill > 0) {
+          const toPay = Math.min(remainingServiceAmount, remainingBill);
+          serviceBill.paidAmount = currentPaid + toPay;
+          serviceBill.paymentMethod = paymentMethod || 'cash';
+          serviceBill.paidBy = req.user.name;
+          serviceBill.paidAt = new Date();
+          
+          if (serviceBill.paidAmount >= serviceBill.amount) {
+            serviceBill.status = 'paid';
+          } else if (serviceBill.paidAmount > 0) {
+            serviceBill.status = 'partially_paid';
+          }
+          
+          remainingServiceAmount -= toPay;
+        }
+      }
+      
+      totalPaid += service;
+    }
+
+    await patient.save();
+
+    // LOG PAYMENT TRANSACTION
+    try {
+      const paymentData = {
+        amount: totalPaid,
+        paymentMethod: paymentMethod || 'cash',
+        paymentType: 'mixed',
+        status: 'completed',
+        notes: `Partial payment breakdown: ${JSON.stringify(payments)}. ${notes || ''}`,
+        currency: 'INR'
+      };
+
+      const metadata = {
+        source: 'web',
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        userAgent: req.headers?.['user-agent']
+      };
+
+      await logPaymentTransaction(paymentData, `patient-${patientId}`, req.user.id || req.user._id, metadata);
+      console.log('✅ Partial payment transaction logged successfully');
+    } catch (paymentLogError) {
+      console.error('❌ Error logging partial payment:', paymentLogError);
+    }
+
+    console.log('✅ Partial payment recorded successfully');
+    res.status(200).json({
+      success: true,
+      message: 'Partial payment recorded successfully',
+      totalPaid: totalPaid,
+      patient: patient
+    });
+
+  } catch (error) {
+    console.error('❌ Error recording partial payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to record partial payment',
       error: error.message
     });
   }

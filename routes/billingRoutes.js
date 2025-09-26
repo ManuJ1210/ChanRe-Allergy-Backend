@@ -20,7 +20,9 @@ import {
   generatePatientInvoice,
   updateMissingInvoiceNumbers,
   updateBillDetails,
-  updatePaymentStatus
+  updatePaymentStatus,
+  recordPatientPayment,
+  recordPartialPayment
 } from '../controllers/billingController.js';
 import { generateInvoicePDF } from '../controllers/invoiceController.js';
 
@@ -40,6 +42,12 @@ router.post('/service-charges', ensureCenterIsolation, createServiceChargesBilli
 
 // Generate patient invoice
 router.post('/generate-invoice', ensureCenterIsolation, generatePatientInvoice);
+
+// Record payment for patients (NEW WORKFLOW)
+router.post('/record-payment', ensureCenterIsolation, recordPatientPayment);
+
+// Record partial payment for patients (NEW WORKFLOW)
+router.post('/record-partial-payment', ensureCenterIsolation, recordPartialPayment);
 
 // Update missing invoice numbers for existing billing records
 router.post('/update-missing-invoice-numbers', checkSuperAdmin, updateMissingInvoiceNumbers);
