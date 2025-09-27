@@ -22,7 +22,12 @@ import {
   updateBillDetails,
   updatePaymentStatus,
   recordPatientPayment,
-  recordPartialPayment
+  recordPartialPayment,
+  // NEW WORKFLOW FUNCTIONS
+  createComprehensiveInvoice,
+  processPayment,
+  cancelBillWithReason,
+  processRefund
 } from '../controllers/billingController.js';
 import { generateInvoicePDF } from '../controllers/invoiceController.js';
 
@@ -48,6 +53,19 @@ router.post('/record-payment', ensureCenterIsolation, recordPatientPayment);
 
 // Record partial payment for patients (NEW WORKFLOW)
 router.post('/record-partial-payment', ensureCenterIsolation, recordPartialPayment);
+
+// NEW WORKFLOW ENDPOINTS
+// Create comprehensive invoice (registration + consultation + services)
+router.post('/create-invoice', ensureCenterIsolation, createComprehensiveInvoice);
+
+// Process payment for existing invoice
+router.post('/process-payment', ensureCenterIsolation, processPayment);
+
+// Cancel bill with reason tracking
+router.post('/cancel-bill', ensureCenterIsolation, cancelBillWithReason);
+
+// Process refund with tracking
+router.post('/process-refund', ensureCenterIsolation, processRefund);
 
 // Update missing invoice numbers for existing billing records
 router.post('/update-missing-invoice-numbers', checkSuperAdmin, updateMissingInvoiceNumbers);

@@ -150,8 +150,8 @@ const getPatients = async (req, res) => {
 
     const patients = await Patient.find(query)
       .populate('centerId', 'name code')
-      .populate('assignedDoctor', 'name')
-      .populate('currentDoctor', 'name')
+      .populate('assignedDoctor', 'name specializations specialization')
+      .populate('currentDoctor', 'name specializations specialization')
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ createdAt: -1 });
@@ -161,7 +161,7 @@ const getPatients = async (req, res) => {
     for (let patient of patients) {
       if (patient.assignedDoctor && typeof patient.assignedDoctor === 'string') {
         try {
-          const doctor = await User.findById(patient.assignedDoctor).select('name');
+          const doctor = await User.findById(patient.assignedDoctor).select('name specializations specialization');
           if (doctor) {
             patient.assignedDoctor = doctor;
           }
@@ -245,8 +245,8 @@ const getAllPatients = async (req, res) => {
 
     const patients = await Patient.find(query)
       .populate('centerId', 'name code')
-      .populate('assignedDoctor', 'name')
-      .populate('currentDoctor', 'name')
+      .populate('assignedDoctor', 'name specializations specialization')
+      .populate('currentDoctor', 'name specializations specialization')
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ createdAt: -1 });
@@ -256,7 +256,7 @@ const getAllPatients = async (req, res) => {
     for (let patient of patients) {
       if (patient.assignedDoctor && typeof patient.assignedDoctor === 'string') {
         try {
-          const doctor = await User.findById(patient.assignedDoctor).select('name');
+          const doctor = await User.findById(patient.assignedDoctor).select('name specializations specialization');
           if (doctor) {
             patient.assignedDoctor = doctor;
           }
@@ -294,8 +294,8 @@ const getPatientById = async (req, res) => {
     
     const patient = await Patient.findById(req.params.id)
       .populate('centerId', 'name code')
-      .populate('assignedDoctor', 'name')
-      .populate('currentDoctor', 'name')
+      .populate('assignedDoctor', 'name specializations specialization')
+      .populate('currentDoctor', 'name specializations specialization')
       .populate('registeredBy', 'name');
     
     if (!patient) {
@@ -342,7 +342,7 @@ const getPatientById = async (req, res) => {
     if (patient.assignedDoctor && typeof patient.assignedDoctor === 'string') {
       try {
         const User = (await import('../models/User.js')).default;
-        const doctor = await User.findById(patient.assignedDoctor).select('name');
+        const doctor = await User.findById(patient.assignedDoctor).select('name specializations specialization');
         console.log('🔍 Found doctor in User collection:', doctor);
         if (doctor) {
           // Manually populate the assignedDoctor field
@@ -574,8 +574,8 @@ const getPatientsByReceptionist = async (req, res) => {
   try {
     const patients = await Patient.find({ registeredBy: req.user._id })
       .populate('centerId', 'name code')
-      .populate('assignedDoctor', 'name')
-      .populate('currentDoctor', 'name');
+      .populate('assignedDoctor', 'name specializations specialization')
+      .populate('currentDoctor', 'name specializations specialization');
     res.json(patients);
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch patients', error: err.message });
@@ -589,8 +589,8 @@ const getPatientsByDoctor = async (req, res) => {
     
     const patients = await Patient.find({ assignedDoctor: doctorId })
       .populate('centerId', 'name code')
-      .populate('assignedDoctor', 'name')
-      .populate('currentDoctor', 'name')
+      .populate('assignedDoctor', 'name specializations specialization')
+      .populate('currentDoctor', 'name specializations specialization')
       .select('name age gender phone email address centerId assignedDoctor');
     
     // Manually populate assignedDoctor if it's still a string
@@ -598,7 +598,7 @@ const getPatientsByDoctor = async (req, res) => {
     for (let patient of patients) {
       if (patient.assignedDoctor && typeof patient.assignedDoctor === 'string') {
         try {
-          const doctor = await User.findById(patient.assignedDoctor).select('name');
+          const doctor = await User.findById(patient.assignedDoctor).select('name specializations specialization');
           if (doctor) {
             patient.assignedDoctor = doctor;
           }
@@ -894,8 +894,8 @@ const reassignDoctor = async (req, res) => {
 
     // Populate the response with doctor names
     const updatedPatient = await Patient.findById(patientId)
-      .populate('assignedDoctor', 'name')
-      .populate('currentDoctor', 'name')
+      .populate('assignedDoctor', 'name specializations specialization')
+      .populate('currentDoctor', 'name specializations specialization')
       .populate('reassignmentHistory.previousDoctor', 'name')
       .populate('reassignmentHistory.newDoctor', 'name')
       .populate('reassignmentHistory.reassignedBy', 'name');
@@ -944,8 +944,8 @@ const recordPatientRevisit = async (req, res) => {
 
     // Populate the response
     const updatedPatient = await Patient.findById(patientId)
-      .populate('assignedDoctor', 'name')
-      .populate('currentDoctor', 'name')
+      .populate('assignedDoctor', 'name specializations specialization')
+      .populate('currentDoctor', 'name specializations specialization')
       .populate('revisitHistory.assignedDoctor', 'name')
       .populate('revisitHistory.recordedBy', 'name');
 

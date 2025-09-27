@@ -3853,10 +3853,10 @@ export const recordPartialPayment = async (req, res) => {
         userAgent: req.headers?.['user-agent']
       };
 
-      await logPaymentTransaction(paymentData, `patient-${patientId}`, req.user.id || req.user._id, metadata);
-      console.log('✅ Partial payment transaction logged successfully');
+      // Skip test request logging for patient billing
+      console.log('💳 Partial payment processed for patient billing - skipping test request logging');
     } catch (paymentLogError) {
-      console.error('❌ Error logging partial payment:', paymentLogError);
+      console.error('❌ Error in payment logging:', paymentLogError);
     }
 
     console.log('✅ Partial payment recorded successfully');
@@ -3872,6 +3872,525 @@ export const recordPartialPayment = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to record partial payment',
+      error: error.message
+    });
+  }
+};
+
+// NEW WORKFLOW FUNCTIONS
+
+// Create comprehensive invoice (registration + consultation + services)
+export const createComprehensiveInvoice = async (req, res) => {
+  try {
+    console.log('🚀 createComprehensiveInvoice called');
+    const { 
+      patientId, 
+      doctorId, 
+      registrationFee, 
+      consultationFee, 
+      serviceCharges, 
+      notes, 
+      taxPercentage, 
+      discountPercentage,
+      isReassignedEntry,
+      reassignedEntryId
+    } = req.body;
+
+    if (!patientId || !doctorId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Patient ID and Doctor ID are required'
+      });
+    }
+
+    // Find patient
+    const patient = await Patient.findById(patientId).populate('assignedDoctor');
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patient not found'
+      });
+    }
+
+    // Check if patient already has billing (only for non-reassigned entries)
+    if (!isReassignedEntry && patient.billing && patient.billing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Patient already has billing records'
+      });
+    }
+
+    // Generate invoice number
+    const invoiceNumber = `INV-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+    
+    // Initialize billing array (only for new invoices, not reassigned entries)
+    if (!isReassignedEntry) {
+      patient.billing = [];
+    }
+
+    // Add registration fee if provided
+    if (registrationFee > 0) {
+      const registrationBill = {
+        type: 'registration',
+        description: 'Registration Fee',
+        amount: registrationFee,
+        paymentMethod: 'pending',
+        status: 'pending',
+        invoiceNumber: invoiceNumber,
+        createdAt: new Date()
+      };
+      
+      // Add reassigned entry fields if applicable
+      if (isReassignedEntry) {
+        registrationBill.isReassignedEntry = true;
+        registrationBill.reassignedEntryId = reassignedEntryId;
+        registrationBill.doctorId = doctorId;
+      }
+      
+      patient.billing.push(registrationBill);
+    }
+
+    // Add consultation fee
+    // Check if this is a followup consultation (free within 7 days)
+    const isFollowupEligible = patient.followupEligible && 
+                              patient.followupExpiryDate && 
+                              new Date() <= patient.followupExpiryDate && 
+                              !patient.followupUsed;
+
+    if (isFollowupEligible) {
+      // Add free followup consultation
+      patient.billing.push({
+        type: 'consultation',
+        description: 'Followup Consultation (Free within 7 days)',
+        amount: 0,
+        paidAmount: 0,
+        paymentMethod: 'free',
+        status: 'paid',
+        paidBy: 'System - Followup',
+        paidAt: new Date(),
+        paymentNotes: 'Free followup consultation within 7 days of paid consultation',
+        invoiceNumber: invoiceNumber,
+        serviceDetails: 'Free followup consultation',
+        consultationType: 'followup',
+        isFollowup: true,
+        followupParentId: patient.billing.find(b => b.type === 'consultation' && b.amount > 0)?._id,
+        createdAt: new Date()
+      });
+      
+      patient.followupUsed = true;
+      patient.consultationType = 'followup';
+      console.log('🆓 Free followup consultation applied');
+    } else if (consultationFee > 0) {
+      // Add regular consultation fee
+      const consultationBill = {
+        type: 'consultation',
+        description: 'Doctor Consultation Fee',
+        amount: consultationFee,
+        paymentMethod: 'pending',
+        status: 'pending',
+        invoiceNumber: invoiceNumber,
+        consultationType: 'OP', // Default to OP, can be changed to IP
+        createdAt: new Date()
+      };
+      
+      // Add reassigned entry fields if applicable
+      if (isReassignedEntry) {
+        consultationBill.isReassignedEntry = true;
+        consultationBill.reassignedEntryId = reassignedEntryId;
+        consultationBill.doctorId = doctorId;
+      }
+      
+      patient.billing.push(consultationBill);
+      
+      // Set followup eligibility for future visits
+      patient.lastPaidConsultationDate = new Date();
+      patient.followupEligible = true;
+      patient.followupExpiryDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
+      patient.consultationType = 'OP';
+      console.log('💰 Regular consultation fee added, followup eligibility set');
+    }
+
+    // Add service charges
+    if (serviceCharges && serviceCharges.length > 0) {
+      serviceCharges.forEach(service => {
+        if (service.name && service.amount) {
+          const serviceBill = {
+            type: 'service',
+            description: service.name,
+            amount: parseFloat(service.amount),
+            paymentMethod: 'pending',
+            status: 'pending',
+            invoiceNumber: invoiceNumber,
+            serviceDetails: service.description || '',
+            createdAt: new Date()
+          };
+          
+          // Add reassigned entry fields if applicable
+          if (isReassignedEntry) {
+            serviceBill.isReassignedEntry = true;
+            serviceBill.reassignedEntryId = reassignedEntryId;
+            serviceBill.doctorId = doctorId;
+          }
+          
+          patient.billing.push(serviceBill);
+        }
+      });
+    }
+
+    // Calculate totals
+    const subtotal = registrationFee + consultationFee + 
+      serviceCharges.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+    const taxAmount = subtotal * (taxPercentage / 100);
+    const discountAmount = subtotal * (discountPercentage / 100);
+    const total = subtotal + taxAmount - discountAmount;
+
+    // Save patient
+    await patient.save();
+
+    // Create invoice data for response
+    const invoice = {
+      invoiceNumber,
+      patient: {
+        _id: patient._id,
+        name: patient.name,
+        uhId: patient.uhId,
+        phone: patient.phone,
+        email: patient.email
+      },
+      doctor: patient.assignedDoctor?.name || 'Not Assigned',
+      generatedBy: req.user.name || 'Receptionist',
+      generatedAt: new Date(),
+      billingRecords: patient.billing,
+      totals: {
+        subtotal,
+        tax: taxAmount,
+        discount: discountAmount,
+        total
+      },
+      notes: notes || '',
+      center: {
+        name: req.user.center?.name || 'Medical Center'
+      }
+    };
+
+    console.log('✅ Comprehensive invoice created successfully');
+    res.status(201).json({
+      success: true,
+      message: 'Invoice created successfully',
+      invoice
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating comprehensive invoice:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create invoice',
+      error: error.message
+    });
+  }
+};
+
+// Process payment for existing invoice
+export const processPayment = async (req, res) => {
+  try {
+    console.log('🚀 processPayment called');
+    const { 
+      patientId, 
+      invoiceId, 
+      amount, 
+      paymentMethod, 
+      paymentType, 
+      notes,
+      appointmentTime
+    } = req.body;
+
+    if (!patientId || !amount || !paymentMethod) {
+      return res.status(400).json({
+        success: false,
+        message: 'Patient ID, amount, and payment method are required'
+      });
+    }
+
+    // Find patient
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patient not found'
+      });
+    }
+
+    if (!patient.billing || patient.billing.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No billing records found for this patient'
+      });
+    }
+
+    const paymentAmount = parseFloat(amount);
+    let remainingAmount = paymentAmount;
+
+    // Process payment against billing items
+    for (let bill of patient.billing) {
+      if (remainingAmount <= 0) break;
+      
+      const billAmount = bill.amount || 0;
+      const billPaid = bill.paidAmount || 0;
+      const billRemaining = billAmount - billPaid;
+
+      if (billRemaining > 0) {
+        const paymentForThisBill = Math.min(remainingAmount, billRemaining);
+        
+        // Update payment
+        bill.paidAmount = (billPaid + paymentForThisBill);
+        bill.paymentMethod = paymentMethod;
+        bill.paidBy = req.user.name || 'Receptionist';
+        bill.paidAt = new Date();
+        bill.paymentNotes = notes || '';
+        
+        // Update status
+        if (bill.paidAmount >= billAmount) {
+          bill.status = 'paid';
+        } else {
+          bill.status = 'partial';
+        }
+
+        remainingAmount -= paymentForThisBill;
+      }
+    }
+
+    // Update appointment time if provided
+    if (appointmentTime) {
+      patient.appointmentTime = new Date(appointmentTime);
+      patient.appointmentStatus = 'scheduled';
+      console.log('📅 Appointment scheduled for:', patient.appointmentTime);
+    }
+
+    // Check if this is a followup consultation (free within 7 days)
+    const isFollowupEligible = patient.followupEligible && 
+                              patient.followupExpiryDate && 
+                              new Date() <= patient.followupExpiryDate && 
+                              !patient.followupUsed;
+
+    if (isFollowupEligible) {
+      // Mark as followup consultation with 0 amount
+      const followupBill = {
+        type: 'consultation',
+        description: 'Followup Consultation (Free within 7 days)',
+        amount: 0,
+        paidAmount: 0,
+        paymentMethod: 'free',
+        status: 'paid',
+        paidBy: 'System - Followup',
+        paidAt: new Date(),
+        paymentNotes: 'Free followup consultation within 7 days of paid consultation',
+        invoiceNumber: `INV-${Date.now()}-${patient._id.slice(-6)}`,
+        consultationType: 'followup',
+        isFollowup: true,
+        followupParentId: patient.billing.find(b => b.type === 'consultation' && b.amount > 0)?._id
+      };
+      
+      patient.billing.push(followupBill);
+      patient.followupUsed = true;
+      patient.consultationType = 'followup';
+      console.log('🆓 Free followup consultation applied');
+    } else {
+      // Regular consultation billing
+      patient.consultationType = 'OP'; // Default to OP, can be changed to IP if needed
+    }
+
+    // Save patient
+    await patient.save();
+
+    // Log payment transaction (skip for patient billing as it's not test request based)
+    try {
+      console.log('💳 Payment processed for patient billing - skipping test request logging');
+      // Note: Patient billing payments are tracked in the patient.billing array
+      // Test request payment logging is separate and not applicable here
+    } catch (paymentLogError) {
+      console.error('❌ Error in payment logging:', paymentLogError);
+    }
+
+    console.log('✅ Payment processed successfully');
+    res.status(200).json({
+      success: true,
+      message: 'Payment processed successfully',
+      patient
+    });
+
+  } catch (error) {
+    console.error('❌ Error processing payment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process payment',
+      error: error.message
+    });
+  }
+};
+
+// Cancel bill with reason tracking
+export const cancelBillWithReason = async (req, res) => {
+  try {
+    console.log('🚀 cancelBillWithReason called');
+    const { patientId, reason, initiateRefund } = req.body;
+
+    if (!patientId || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Patient ID and cancellation reason are required'
+      });
+    }
+
+    // Find patient
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patient not found'
+      });
+    }
+
+    if (!patient.billing || patient.billing.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No billing records found for this patient'
+      });
+    }
+
+    // Calculate total paid amount
+    const totalPaid = patient.billing.reduce((sum, bill) => sum + (bill.paidAmount || 0), 0);
+
+    // Cancel all billing items
+    patient.billing.forEach(bill => {
+      bill.status = 'cancelled';
+      bill.cancelledAt = new Date();
+      bill.cancelledBy = req.user.id || req.user._id;
+      bill.cancellationReason = reason;
+    });
+
+    // Save patient
+    await patient.save();
+
+    // Log cancellation (skip test request logging for patient billing)
+    try {
+      const cancellationData = {
+        patientId,
+        reason,
+        cancelledBy: req.user.id || req.user._id,
+        totalPaid,
+        initiateRefund
+      };
+
+      console.log('💳 Bill cancellation processed for patient billing - skipping test request logging');
+      console.log('📋 Cancellation data:', cancellationData);
+      // Note: Patient billing cancellations are tracked in the patient.billing array
+      // Test request payment logging is separate and not applicable here
+    } catch (logError) {
+      console.error('❌ Error logging cancellation:', logError);
+    }
+
+    console.log('✅ Bill cancelled successfully');
+    res.status(200).json({
+      success: true,
+      message: 'Bill cancelled successfully',
+      refundInitiated: initiateRefund && totalPaid > 0,
+      totalPaid,
+      patient
+    });
+
+  } catch (error) {
+    console.error('❌ Error cancelling bill:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to cancel bill',
+      error: error.message
+    });
+  }
+};
+
+// Process refund with tracking
+export const processRefund = async (req, res) => {
+  try {
+    console.log('🚀 processRefund called');
+    const { 
+      patientId, 
+      amount, 
+      refundMethod, 
+      reason, 
+      notes 
+    } = req.body;
+
+    if (!patientId || !amount || !refundMethod || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Patient ID, amount, refund method, and reason are required'
+      });
+    }
+
+    // Find patient
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: 'Patient not found'
+      });
+    }
+
+    if (!patient.billing || patient.billing.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No billing records found for this patient'
+      });
+    }
+
+    const refundAmount = parseFloat(amount);
+
+    // Update billing status to refunded
+    patient.billing.forEach(bill => {
+      if (bill.status === 'cancelled') {
+        bill.status = 'refunded';
+        bill.refundedAt = new Date();
+        bill.refundedBy = req.user.id || req.user._id;
+        bill.refundMethod = refundMethod;
+        bill.refundReason = reason;
+        bill.refundNotes = notes || '';
+      }
+    });
+
+    // Save patient
+    await patient.save();
+
+    // Log refund transaction
+    try {
+      const refundData = {
+        patientId,
+        amount: refundAmount,
+        refundMethod,
+        reason,
+        notes: notes || '',
+        status: 'completed',
+        refundedBy: req.user.id || req.user._id
+      };
+
+      await logPaymentRefund(refundData, `patient-${patientId}`, req.user.id || req.user._id);
+      console.log('✅ Refund transaction logged successfully');
+    } catch (logError) {
+      console.error('❌ Error logging refund:', logError);
+    }
+
+    console.log('✅ Refund processed successfully');
+    res.status(200).json({
+      success: true,
+      message: 'Refund processed successfully',
+      refundAmount,
+      patient
+    });
+
+  } catch (error) {
+    console.error('❌ Error processing refund:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process refund',
       error: error.message
     });
   }

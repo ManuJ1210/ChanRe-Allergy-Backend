@@ -54,12 +54,40 @@ const billingSchema = new mongoose.Schema({
   type: { type: String, required: true }, // 'consultation', 'registration', 'service', 'test', 'medication', etc.
   description: { type: String },
   amount: { type: Number, required: true },
+  paidAmount: { type: Number, default: 0 }, // Amount paid so far
   paymentMethod: { type: String, default: 'cash' },
-  status: { type: String, enum: ['pending', 'paid', 'completed', 'unpaid'], default: 'pending' },
+  status: { type: String, enum: ['pending', 'paid', 'partial', 'completed', 'unpaid', 'cancelled', 'refunded'], default: 'pending' },
   paidBy: { type: String }, // Name of person who collected payment
   paidAt: { type: Date },
+  paymentNotes: { type: String }, // Payment notes
   invoiceNumber: { type: String }, // Auto-generated invoice number
   serviceDetails: { type: String }, // Additional service details
+  
+  // Consultation type and followup tracking
+  consultationType: { 
+    type: String, 
+    enum: ['OP', 'IP', 'followup'], 
+    default: 'OP' 
+  }, // Type of consultation
+  isFollowup: { type: Boolean, default: false }, // Whether this is a followup visit
+  followupParentId: { type: mongoose.Schema.Types.ObjectId }, // Reference to original consultation
+  
+  // Reassigned entry tracking
+  isReassignedEntry: { type: Boolean, default: false }, // Whether this is a reassigned entry
+  reassignedEntryId: { type: String }, // Unique ID for reassigned entry
+  doctorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Doctor for this billing entry
+  
+  // Cancellation fields
+  cancelledAt: { type: Date },
+  cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  cancellationReason: { type: String },
+  // Refund fields
+  refundedAt: { type: Date },
+  refundedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  refundAmount: { type: Number, default: 0 },
+  refundMethod: { type: String },
+  refundReason: { type: String },
+  refundNotes: { type: String },
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -107,6 +135,29 @@ const patientSchema = new mongoose.Schema({
   serialNumber: { type: Number }, // Serial number for this center
   lastVisitDate: { type: Date }, // Track last visit date
   visitCount: { type: Number, default: 0 }, // Track number of visits
+  // Appointment fields
+  appointmentTime: { type: Date }, // Scheduled appointment time
+  appointmentStatus: { 
+    type: String, 
+    enum: ['scheduled', 'viewed', 'missed', 'reassigned'], 
+    default: 'scheduled' 
+  }, // Appointment status
+  appointmentNotes: { type: String }, // Additional appointment notes
+  missedAt: { type: Date }, // When appointment was marked as missed
+  reassignedAt: { type: Date }, // When patient was reassigned due to missed appointment
+  
+  // Followup tracking
+  lastPaidConsultationDate: { type: Date }, // Date of last paid consultation
+  followupEligible: { type: Boolean, default: false }, // Whether patient is eligible for free followup
+  followupUsed: { type: Boolean, default: false }, // Whether free followup has been used
+  followupExpiryDate: { type: Date }, // When followup eligibility expires
+  
+  // Consultation type tracking
+  consultationType: { 
+    type: String, 
+    enum: ['OP', 'IP', 'followup'], 
+    default: 'OP' 
+  }, // Type of consultation
   tests: [testSchema],
   history: [historySchema],
   medications: [medicationSchema],

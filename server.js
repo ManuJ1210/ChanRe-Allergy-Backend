@@ -34,6 +34,7 @@ import reassignedPatientRoutes from './routes/reassignedPatientRoutes.js';
 import reassignRoutes from './routes/reassignRoutes.js';
 import reassignedInvoiceRoutes from './routes/reassignedInvoiceRoutes.js';
 import paymentLogRoutes from './routes/paymentLogRoutes.js';
+import appointmentRoutes from './routes/appointmentRoutes.js';
 
 
 dotenv.config();
@@ -147,6 +148,7 @@ app.use('/api/login-history', loginHistoryRoutes);
 app.use('/api/reassigned-patients', reassignedPatientRoutes);
 app.use('/api/patients', reassignRoutes);
 app.use('/api/reassigned-invoices', reassignedInvoiceRoutes);
+app.use('/api/appointments', appointmentRoutes);
 
 
 // Use environment variable or fallback to local MongoDB
