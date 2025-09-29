@@ -17,6 +17,7 @@ import {
   testEndpoint,
   markPatientAsViewed,
   reassignDoctor,
+  autoReassignUnviewedPatients,
   recordPatientRevisit
 } from '../controllers/patientController.js';
 import { protect, ensureCenterIsolation, ensureDoctor, ensureDoctorOrReceptionist, ensureCenterStaffOrDoctor } from '../middleware/authMiddleware.js';
@@ -53,6 +54,7 @@ router.put('/:patientId/mark-viewed', ensureDoctor, markPatientAsViewed);
 
 // Reassignment and revisit routes
 router.put('/:patientId/reassign-doctor', ensureCenterStaffOrDoctor, reassignDoctor);
+router.post('/auto-reassign-unviewed', ensureCenterStaffOrDoctor, autoReassignUnviewedPatients);
 router.post('/:patientId/record-revisit', ensureCenterStaffOrDoctor, recordPatientRevisit);
 
 // Temporary route for adding sample data (remove in production)

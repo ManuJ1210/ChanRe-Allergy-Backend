@@ -826,6 +826,7 @@ const markPatientAsViewed = async (req, res) => {
     if (!patient.viewedByDoctor) {
       patient.viewedByDoctor = true;
       patient.viewedAt = new Date();
+      patient.appointmentStatus = 'viewed'; // Update appointment status for receptionist view
       await patient.save();
     }
 
@@ -876,6 +877,7 @@ const reassignDoctor = async (req, res) => {
     patient.assignedAt = new Date();
     patient.viewedByDoctor = false; // Reset viewed status
     patient.viewedAt = null; // Reset viewed date
+    patient.isReassigned = true; // Mark patient as reassigned
 
     // Add reassignment history
     if (!patient.reassignmentHistory) {
@@ -907,6 +909,75 @@ const reassignDoctor = async (req, res) => {
   } catch (error) {
     console.error('❌ Reassign doctor error:', error);
     res.status(500).json({ message: 'Failed to reassign doctor' });
+  }
+};
+
+// Auto-reassign patients not viewed by doctor
+const autoReassignUnviewedPatients = async (req, res) => {
+  try {
+    const { reassignDate } = req.body; // Optional: specific date to reassign to
+    
+    // Find patients assigned today but not viewed by doctor
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    const unviewedPatients = await Patient.find({
+      assignedAt: { $gte: today, $lt: tomorrow },
+      viewedByDoctor: false,
+      appointmentStatus: { $ne: 'viewed' }
+    }).populate('assignedDoctor');
+    
+    if (unviewedPatients.length === 0) {
+      return res.json({ 
+        message: 'No unviewed patients found for today',
+        reassignedCount: 0 
+      });
+    }
+    
+    const reassignedPatients = [];
+    const targetDate = reassignDate ? new Date(reassignDate) : new Date(today.getTime() + 24 * 60 * 60 * 1000); // Default to tomorrow
+    
+    for (const patient of unviewedPatients) {
+      // Update patient status
+      patient.appointmentStatus = 'reassigned';
+      patient.reassignedAt = new Date();
+      patient.reassignedDate = targetDate;
+      
+      // Add reassignment history
+      if (!patient.reassignmentHistory) {
+        patient.reassignmentHistory = [];
+      }
+      
+      patient.reassignmentHistory.push({
+        previousDoctor: patient.assignedDoctor._id,
+        newDoctor: patient.assignedDoctor._id, // Same doctor
+        reassignedAt: new Date(),
+        reassignedBy: req.user._id,
+        reason: 'Auto-reassignment - Patient not viewed by doctor on scheduled date',
+        autoReassigned: true
+      });
+      
+      await patient.save();
+      reassignedPatients.push({
+        patientId: patient._id,
+        patientName: patient.name,
+        uhId: patient.uhId,
+        reassignedDate: targetDate
+      });
+    }
+    
+    res.json({
+      message: `Successfully auto-reassigned ${reassignedPatients.length} patients`,
+      reassignedCount: reassignedPatients.length,
+      reassignedPatients,
+      targetDate
+    });
+    
+  } catch (error) {
+    console.error('❌ Auto-reassign unviewed patients error:', error);
+    res.status(500).json({ message: 'Failed to auto-reassign unviewed patients' });
   }
 };
 
@@ -980,5 +1051,6 @@ export {
   testEndpoint,
   markPatientAsViewed,
   reassignDoctor,
+  autoReassignUnviewedPatients,
   recordPatientRevisit
 };
