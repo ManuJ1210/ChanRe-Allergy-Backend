@@ -4094,6 +4094,8 @@ export const createComprehensiveInvoice = async (req, res) => {
 export const processPayment = async (req, res) => {
   try {
     console.log('🚀 processPayment called');
+    console.log('📥 Request body:', JSON.stringify(req.body, null, 2));
+    console.log('📥 Request user:', req.user);
     const { 
       patientId, 
       invoiceId, 
@@ -4184,7 +4186,7 @@ export const processPayment = async (req, res) => {
         paidBy: 'System - Followup',
         paidAt: new Date(),
         paymentNotes: 'Free followup consultation within 7 days of paid consultation',
-        invoiceNumber: `INV-${Date.now()}-${patient._id.slice(-6)}`,
+        invoiceNumber: `INV-${Date.now()}-${patient._id.toString().slice(-6)}`,
         consultationType: 'followup',
         isFollowup: true,
         followupParentId: patient.billing.find(b => b.type === 'consultation' && b.amount > 0)?._id
@@ -4220,6 +4222,13 @@ export const processPayment = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error processing payment:', error);
+    console.error('❌ Error stack:', error.stack);
+    console.error('❌ Patient data:', patient ? {
+      id: patient._id,
+      name: patient.name,
+      hasBilling: patient.billing ? patient.billing.length : 'unknown',
+      billingStructure: patient.billing ? patient.billing[0] : 'no billing'
+    } : 'No patient');
     res.status(500).json({
       success: false,
       message: 'Failed to process payment',
