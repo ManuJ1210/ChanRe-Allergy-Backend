@@ -238,6 +238,218 @@ export const logPaymentRefund = async (testRequestId, refundAmount, userId, refu
 };
 
 /**
+ * Log patient billing payment (for consultation, registration, service charges)
+ * @param {ObjectId} patientId - Patient ID
+ * @param {Object} paymentData - Payment data
+ * @param {ObjectId} userId - User ID processing payment
+ * @param {Object} metadata - Additional metadata
+ * @returns {Promise<Object>} Created payment log
+ */
+export const logPatientBillingPayment = async (patientId, paymentData, userId, metadata = {}) => {
+  try {
+    console.log('🔍 Logging patient billing payment:', {
+      patientId,
+      userId,
+      paymentData,
+      metadata
+    });
+
+    // Get patient details for payment context
+    const patient = await Patient.findById(patientId)
+      .populate('centerId', 'name code')
+      .populate('assignedDoctor', 'name email');
+    
+    if (!patient) {
+      throw new Error(`Patient ${patientId} not found`);
+    }
+
+    // Extract payment information
+    const {
+      amount,
+      paymentMethod = 'cash',
+      paymentType = 'consultation',
+      transactionId,
+      externalTransactionId,
+      receiptNumber,
+      receiptFile,
+      notes,
+      verificationNotes,
+      paymentGateway,
+      status = 'completed',
+      invoiceNumber,
+      billingId,
+      consultationType = 'OP',
+      appointmentTime,
+      isReassignedEntry = false,
+      reassignedEntryId
+    } = paymentData;
+
+    // Generate transaction ID if not provided
+    const finalTransactionId = transactionId || (() => {
+      const timestamp = Date.now();
+      const randomPart = Math.random().toString(36).substr(2, 5);
+      return `PAY-${timestamp}-${randomPart.toUpperCase()}`;
+    })();
+
+    // Prepare payment log entry
+    const paymentLogEntry = {
+      testRequestId: null, // No test request for patient billing
+      patientId: patient._id,
+      patientName: patient.name,
+      centerId: patient.centerId?._id || patient.centerId,
+      centerName: patient.centerId?.name || 'Unknown Center',
+      amount,
+      currency: paymentData.currency || 'INR',
+      paymentType,
+      paymentMethod,
+      status,
+      externalTransactionId,
+      paymentGateway,
+      receiptNumber,
+      receiptFile,
+      notes,
+      verificationNotes,
+      processedBy: userId,
+      createdBy: userId,
+      metadata: {
+        ipAddress: metadata.ipAddress,
+        userAgent: metadata.userAgent,
+        source: metadata.source || 'web',
+        isReassignedEntry,
+        reassignedEntryId,
+        consultationType,
+        appointmentTime,
+        ...metadata
+      },
+      billingId,
+      invoiceNumber,
+      transactionId: finalTransactionId,
+      verified: metadata.verified || false,
+      verifiedBy: metadata.verifiedBy,
+      verifiedAt: metadata.verifiedAt
+    };
+
+    // Add status change reason for initial entry
+    paymentLogEntry.statusHistory = [{
+      status,
+      changedAt: new Date(),
+      changedBy: userId,
+      reason: 'Patient billing payment logged',
+      notes: `Payment for ${paymentType} - ${notes || 'No additional notes'}`
+    }];
+
+    console.log('💾 Creating patient billing payment log entry:', {
+      transactionId: paymentLogEntry.transactionId,
+      amount,
+      paymentMethod,
+      status,
+      paymentType
+    });
+
+    const paymentLog = new PaymentLog(paymentLogEntry);
+    const savedPaymentLog = await paymentLog.save();
+    
+    console.log('✅ Patient billing payment logged successfully:', savedPaymentLog._id);
+    
+    return savedPaymentLog;
+  } catch (error) {
+    console.error('❌ Error logging patient billing payment:', error);
+    throw error;
+  }
+};
+
+/**
+ * Log patient billing refund
+ * @param {ObjectId} patientId - Patient ID
+ * @param {Number} refundAmount - Refund amount
+ * @param {String} refundMethod - Refund method
+ * @param {String} refundReason - Reason for refund
+ * @param {ObjectId} userId - User ID processing refund
+ * @param {Object} metadata - Additional metadata
+ * @returns {Promise<Object>} Updated payment log
+ */
+export const logPatientBillingRefund = async (patientId, refundAmount, refundMethod, refundReason, userId, metadata = {}) => {
+  try {
+    console.log('🔍 Logging patient billing refund:', {
+      patientId,
+      refundAmount,
+      refundMethod,
+      refundReason,
+      userId
+    });
+
+    // Find the most recent payment log for this patient
+    const paymentLog = await PaymentLog.findOne({ 
+      patientId,
+      testRequestId: null, // Patient billing payments have null testRequestId
+      status: 'completed'
+    }).sort({ createdAt: -1 });
+
+    if (!paymentLog) {
+      throw new Error('No completed payment found for refund');
+    }
+
+    // Update refund information
+    paymentLog.refund = {
+      refundedAmount: refundAmount,
+      refundedAt: new Date(),
+      refundedBy: userId,
+      refundReason,
+      refundMethod,
+      externalRefundId: metadata.externalRefundId
+    };
+
+    await paymentLog.updateStatus('refunded', userId, 'Payment refunded', `Refund amount: ${refundAmount}, Method: ${refundMethod}, Reason: ${refundReason}`);
+    
+    console.log('✅ Patient billing refund logged successfully');
+    return paymentLog;
+  } catch (error) {
+    console.error('❌ Error logging patient billing refund:', error);
+    throw error;
+  }
+};
+
+/**
+ * Log patient billing cancellation
+ * @param {ObjectId} patientId - Patient ID
+ * @param {String} cancellationReason - Reason for cancellation
+ * @param {ObjectId} userId - User ID cancelling payment
+ * @param {Object} metadata - Additional metadata
+ * @returns {Promise<Array>} Updated payment logs
+ */
+export const logPatientBillingCancellation = async (patientId, cancellationReason, userId, metadata = {}) => {
+  try {
+    console.log('🔍 Logging patient billing cancellation:', {
+      patientId,
+      cancellationReason,
+      userId
+    });
+
+    // Find all payment logs for this patient
+    const paymentLogs = await PaymentLog.find({ 
+      patientId,
+      testRequestId: null, // Patient billing payments have null testRequestId
+      status: { $ne: 'cancelled' }
+    });
+
+    for (const paymentLog of paymentLogs) {
+      await paymentLog.updateStatus(
+        'cancelled', 
+        userId, 
+        'Payment cancelled',
+        `Cancellation reason: ${cancellationReason}`
+      );
+    }
+
+    console.log(`✅ Cancelled ${paymentLogs.length} patient billing payment logs`);
+    return paymentLogs;
+  } catch (error) {
+    console.error('❌ Error logging patient billing cancellation:', error);
+    throw error;
+  }
+};
+
+/**
  * Log partial payment (for existing billing records)
  * @param {ObjectId} testRequestId - Test request ID
  * @param {Number} paymentAmount - Payment amount being added
@@ -426,6 +638,9 @@ export default {
   logPaymentStatusUpdate,
   logPaymentCancellation,
   logPaymentRefund,
+  logPatientBillingPayment,
+  logPatientBillingRefund,
+  logPatientBillingCancellation,
   logPartialPayment,
   getPaymentLogsForTestRequest,
   getPaymentLogsForCenter,

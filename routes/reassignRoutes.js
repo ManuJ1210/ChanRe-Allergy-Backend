@@ -12,35 +12,46 @@ router.use(ensureCenterIsolation);
 // Reassign patient to a new doctor
 router.post('/reassign', async (req, res) => {
   try {
-    console.log('🔄 Patient reassignment request:', req.body);
+    console.log('🔄 Patient reassignment request received:', req.body);
+    console.log('🔄 Request headers:', req.headers);
+    console.log('🔄 User from middleware:', req.user);
     
     const { patientId, newDoctorId, reason, notes, reassignedBy, reassignedAt } = req.body;
 
     // Validate required fields
     if (!patientId || !newDoctorId || !reason) {
+      console.log('❌ Validation failed - missing required fields:', { patientId, newDoctorId, reason });
       return res.status(400).json({
         success: false,
         message: 'Patient ID, new doctor ID, and reason are required'
       });
     }
 
+    console.log('✅ Validation passed, proceeding with reassignment...');
+
     // Find the patient
+    console.log('🔍 Looking for patient with ID:', patientId);
     const patient = await Patient.findById(patientId);
     if (!patient) {
+      console.log('❌ Patient not found with ID:', patientId);
       return res.status(404).json({
         success: false,
         message: 'Patient not found'
       });
     }
+    console.log('✅ Patient found:', patient.name);
 
     // Find the new doctor
+    console.log('🔍 Looking for doctor with ID:', newDoctorId);
     const newDoctor = await User.findById(newDoctorId);
     if (!newDoctor) {
+      console.log('❌ Doctor not found with ID:', newDoctorId);
       return res.status(404).json({
         success: false,
         message: 'New doctor not found'
       });
     }
+    console.log('✅ Doctor found:', newDoctor.name);
 
     // Store the previous doctor information
     const previousDoctor = patient.assignedDoctor;

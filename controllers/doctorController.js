@@ -378,8 +378,18 @@ export const getAssignedPatients = async (req, res) => {
     }
     
     // Ensure doctor can only see patients from their center
+    // Include both currently assigned patients AND previously assigned patients (reassigned patients)
     const patients = await Patient.find({ 
-      assignedDoctor: doctorId,
+      $or: [
+        { assignedDoctor: doctorId }, // Currently assigned patients
+        { 
+          reassignmentHistory: { 
+            $elemMatch: { 
+              previousDoctor: doctorId 
+            } 
+          } 
+        } // Previously assigned patients (reassigned)
+      ],
       centerId: req.user.centerId // Only patients from same center
     })
       .populate({
@@ -392,9 +402,19 @@ export const getAssignedPatients = async (req, res) => {
         select: 'name email',
         model: 'User'
       })
+      .populate({
+        path: 'currentDoctor',
+        select: 'name email',
+        model: 'User'
+      })
       .select('-tests'); // Exclude tests array for performance
 
     console.log(`📋 Found ${patients.length} patients for doctor in center: ${req.user.centerId}`);
+    console.log('🔍 Patient types breakdown:', {
+      total: patients.length,
+      currentlyAssigned: patients.filter(p => p.assignedDoctor?._id?.toString() === doctorId.toString()).length,
+      reassigned: patients.filter(p => p.reassignmentHistory?.some(r => r.previousDoctor?.toString() === doctorId.toString())).length
+    });
     
     // ✅ NEW: Check billing status for each patient
     const patientsWithBillingStatus = await Promise.all(

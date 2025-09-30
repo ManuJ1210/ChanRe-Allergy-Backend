@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { protect, ensureCenterIsolation, checkSuperAdmin } from '../middleware/authMiddleware.js';
 import { 
   getPaymentLogsForTestRequest,
@@ -54,7 +55,7 @@ router.get('/center', ensureCenterIsolation, async (req, res) => {
     } = req.query;
 
     // Build query filters
-    const filters = { centerId };
+    const filters = { centerId: new mongoose.Types.ObjectId(centerId) };
     
     if (status) filters.status = status;
     if (paymentMethod) filters.paymentMethod = paymentMethod;
@@ -157,7 +158,7 @@ router.get('/all', checkSuperAdmin, async (req, res) => {
     const filters = {};
     
     if (centerId && centerId !== 'all') {
-      filters.centerId = centerId;
+      filters.centerId = new mongoose.Types.ObjectId(centerId);
     }
     if (status) filters.status = status;
     if (paymentMethod) filters.paymentMethod = paymentMethod;
@@ -226,7 +227,7 @@ router.get('/center/export', ensureCenterIsolation, async (req, res) => {
     const { centerId } = req.user;
     const { dateFrom, dateTo } = req.query;
 
-    const filters = { centerId };
+    const filters = { centerId: new mongoose.Types.ObjectId(centerId) };
     
     if (dateFrom && dateTo) {
       filters.createdAt = {
@@ -292,7 +293,7 @@ router.get('/analysis', checkSuperAdmin, async (req, res) => {
 
     const filters = {};
     if (centerId && centerId !== 'all') {
-      filters.centerId = centerId;
+      filters.centerId = new mongoose.Types.ObjectId(centerId);
     }
     if (dateFrom && dateTo) {
       filters.createdAt = {

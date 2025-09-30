@@ -8,7 +8,10 @@ import {
   logPaymentTransaction, 
   logPaymentStatusUpdate,
   logPaymentCancellation,
-  logPaymentRefund 
+  logPaymentRefund,
+  logPatientBillingPayment,
+  logPatientBillingRefund,
+  logPatientBillingCancellation
 } from '../services/paymentLogService.js';
 
 // Generate bill for a test request (Receptionist action)
@@ -4204,13 +4207,44 @@ export const processPayment = async (req, res) => {
     // Save patient
     await patient.save();
 
-    // Log payment transaction (skip for patient billing as it's not test request based)
+    // Log payment transaction for patient billing
     try {
-      console.log('💳 Payment processed for patient billing - skipping test request logging');
-      // Note: Patient billing payments are tracked in the patient.billing array
-      // Test request payment logging is separate and not applicable here
+      console.log('💳 Logging patient billing payment transaction');
+      
+      // Prepare payment data for logging
+      const paymentData = {
+        amount: paymentAmount,
+        paymentMethod,
+        paymentType: paymentType || 'consultation',
+        notes: notes || `Payment processed for patient: ${patient.name}`,
+        invoiceNumber: patient.billing[0]?.invoiceNumber || `INV-${patient._id.toString().slice(-6)}`,
+        consultationType: req.body.consultationType || 'OP',
+        appointmentTime: appointmentTime,
+        status: 'completed'
+      };
+
+      // Prepare metadata
+      const metadata = {
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.headers?.['user-agent'],
+        source: 'web',
+        verified: true,
+        verifiedBy: req.user.id || req.user._id,
+        verifiedAt: new Date()
+      };
+
+      // Log the payment transaction
+      await logPatientBillingPayment(
+        patientId,
+        paymentData,
+        req.user.id || req.user._id,
+        metadata
+      );
+      
+      console.log('✅ Patient billing payment logged successfully');
     } catch (paymentLogError) {
-      console.error('❌ Error in payment logging:', paymentLogError);
+      console.error('❌ Error logging patient billing payment:', paymentLogError);
+      // Continue execution - payment logging failure should not stop the transaction
     }
 
     console.log('✅ Payment processed successfully');
@@ -4290,10 +4324,24 @@ export const cancelBillWithReason = async (req, res) => {
         initiateRefund
       };
 
-      console.log('💳 Bill cancellation processed for patient billing - skipping test request logging');
-      console.log('📋 Cancellation data:', cancellationData);
-      // Note: Patient billing cancellations are tracked in the patient.billing array
-      // Test request payment logging is separate and not applicable here
+      console.log('💳 Logging patient billing cancellation transaction');
+      
+      // Prepare metadata
+      const metadata = {
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.headers?.['user-agent'],
+        source: 'web'
+      };
+
+      // Log the cancellation transaction
+      await logPatientBillingCancellation(
+        patientId,
+        reason,
+        req.user.id || req.user._id,
+        metadata
+      );
+      
+      console.log('✅ Patient billing cancellation logged successfully');
     } catch (logError) {
       console.error('❌ Error logging cancellation:', logError);
     }
@@ -4371,20 +4419,30 @@ export const processRefund = async (req, res) => {
 
     // Log refund transaction
     try {
-      const refundData = {
-        patientId,
-        amount: refundAmount,
-        refundMethod,
-        reason,
-        notes: notes || '',
-        status: 'completed',
-        refundedBy: req.user.id || req.user._id
+      console.log('💳 Logging patient billing refund transaction');
+      
+      // Prepare metadata
+      const metadata = {
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.headers?.['user-agent'],
+        source: 'web',
+        externalRefundId: `REF-${Date.now()}-${patientId.toString().slice(-6)}`
       };
 
-      await logPaymentRefund(refundData, `patient-${patientId}`, req.user.id || req.user._id);
-      console.log('✅ Refund transaction logged successfully');
+      // Log the refund transaction
+      await logPatientBillingRefund(
+        patientId,
+        refundAmount,
+        refundMethod,
+        reason,
+        req.user.id || req.user._id,
+        metadata
+      );
+      
+      console.log('✅ Patient billing refund logged successfully');
     } catch (logError) {
-      console.error('❌ Error logging refund:', logError);
+      console.error('❌ Error logging patient billing refund:', logError);
+      // Continue execution - payment logging failure should not stop the transaction
     }
 
     console.log('✅ Refund processed successfully');

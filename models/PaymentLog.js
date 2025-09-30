@@ -13,7 +13,7 @@ const paymentLogSchema = new mongoose.Schema({
   testRequestId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'TestRequest',
-    required: true,
+    required: false, // Made optional to support patient billing payments
     description: 'Reference to the test request this payment belongs to'
   },
   
@@ -259,7 +259,7 @@ const paymentLogSchema = new mongoose.Schema({
 });
 
 // Add indexes for efficient querying
-paymentLogSchema.index({ transactionId: 1 });
+// transactionId index is automatically created by unique: true
 paymentLogSchema.index({ testRequestId: 1 });
 paymentLogSchema.index({ patientId: 1 });
 paymentLogSchema.index({ centerId: 1 });

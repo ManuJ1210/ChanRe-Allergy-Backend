@@ -33,6 +33,7 @@ import loginHistoryRoutes from './routes/loginHistoryRoutes.js';
 import reassignedPatientRoutes from './routes/reassignedPatientRoutes.js';
 import reassignRoutes from './routes/reassignRoutes.js';
 import reassignedInvoiceRoutes from './routes/reassignedInvoiceRoutes.js';
+import reassignmentBillingRoutes from './routes/reassignmentBillingRoutes.js';
 import paymentLogRoutes from './routes/paymentLogRoutes.js';
 import appointmentRoutes from './routes/appointmentRoutes.js';
 
@@ -142,6 +143,7 @@ app.use('/api/test-requests', testRequestRoutes);
 app.use('/api/lab-reports', labReportsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/billing', billingRoutes);
+app.use('/api/reassignment-billing', reassignmentBillingRoutes);
 app.use('/api/payment-logs', paymentLogRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/login-history', loginHistoryRoutes);
