@@ -388,7 +388,12 @@ export const getAssignedPatients = async (req, res) => {
               previousDoctor: doctorId 
             } 
           } 
-        } // Previously assigned patients (reassigned)
+        }, // Previously assigned patients (reassigned)
+        { 
+          requiresReassignment: true,
+          workingHoursViolation: true,
+          assignedDoctor: doctorId
+        } // Patients requiring reassignment due to working hours violation
       ],
       centerId: req.user.centerId // Only patients from same center
     })
@@ -413,10 +418,11 @@ export const getAssignedPatients = async (req, res) => {
     console.log('🔍 Patient types breakdown:', {
       total: patients.length,
       currentlyAssigned: patients.filter(p => p.assignedDoctor?._id?.toString() === doctorId.toString()).length,
-      reassigned: patients.filter(p => p.reassignmentHistory?.some(r => r.previousDoctor?.toString() === doctorId.toString())).length
+      reassigned: patients.filter(p => p.reassignmentHistory?.some(r => r.previousDoctor?.toString() === doctorId.toString())).length,
+      workingHoursViolation: patients.filter(p => p.workingHoursViolation && p.requiresReassignment).length
     });
     
-    // ✅ NEW: Check billing status for each patient
+    // ✅ NEW: Check billing status for each patient and filter out cancelled bills
     const patientsWithBillingStatus = await Promise.all(
       patients.map(async (patient) => {
         try {
@@ -428,6 +434,22 @@ export const getAssignedPatients = async (req, res) => {
           }).select('status billing.status billing.amount');
 
           const patientObj = patient.toObject();
+          
+          // Check for cancelled bills in reassignment billing
+          const hasCancelledReassignmentBill = patient.reassignedBilling && 
+            patient.reassignedBilling.some(bill => bill.status === 'cancelled');
+          
+          // Check for cancelled bills in regular billing
+          const hasCancelledRegularBill = patient.billing && 
+            patient.billing.some(bill => bill.status === 'cancelled');
+          
+          // If patient has cancelled bills, mark them as cancelled
+          if (hasCancelledReassignmentBill || hasCancelledRegularBill) {
+            patientObj.billingStatus = 'cancelled';
+            patientObj.isCancelled = true;
+            patientObj.pendingTestRequest = null;
+            return patientObj;
+          }
           
           if (pendingBillingTestRequest) {
             patientObj.billingStatus = 'pending';
@@ -453,19 +475,24 @@ export const getAssignedPatients = async (req, res) => {
       })
     );
 
+    // Filter out patients with cancelled bills (optional - you can comment this out if you want to show them with locked actions)
+    const activePatients = patientsWithBillingStatus.filter(patient => !patient.isCancelled);
+    
+    console.log(`📋 Filtered out ${patientsWithBillingStatus.length - activePatients.length} patients with cancelled bills`);
+
     // Log sample patient data for debugging
-    if (patientsWithBillingStatus.length > 0) {
+    if (activePatients.length > 0) {
       console.log('🏥 Sample patient data with billing status:', {
-        patientId: patientsWithBillingStatus[0]._id,
-        centerId: patientsWithBillingStatus[0].centerId,
-        centerName: patientsWithBillingStatus[0].centerId?.name,
-        centerCode: patientsWithBillingStatus[0].centerId?.code,
-        billingStatus: patientsWithBillingStatus[0].billingStatus,
-        pendingTestRequest: patientsWithBillingStatus[0].pendingTestRequest
+        patientId: activePatients[0]._id,
+        centerId: activePatients[0].centerId,
+        centerName: activePatients[0].centerId?.name,
+        centerCode: activePatients[0].centerId?.code,
+        billingStatus: activePatients[0].billingStatus,
+        pendingTestRequest: activePatients[0].pendingTestRequest
       });
     }
 
-    res.status(200).json(patientsWithBillingStatus);
+    res.status(200).json(activePatients);
   } catch (error) {
     console.error('❌ Error fetching assigned patients:', error);
     console.error('❌ Error stack:', error.stack);

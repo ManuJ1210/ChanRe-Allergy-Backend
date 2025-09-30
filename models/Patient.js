@@ -139,12 +139,19 @@ const patientSchema = new mongoose.Schema({
   appointmentTime: { type: Date }, // Scheduled appointment time
   appointmentStatus: { 
     type: String, 
-    enum: ['scheduled', 'viewed', 'missed', 'reassigned'], 
+    enum: ['scheduled', 'viewed', 'missed', 'reassigned', 'working_hours_violation'], 
     default: 'scheduled' 
   }, // Appointment status
   appointmentNotes: { type: String }, // Additional appointment notes
   missedAt: { type: Date }, // When appointment was marked as missed
   reassignedAt: { type: Date }, // When patient was reassigned due to missed appointment
+  
+  // Working hours tracking
+  workingHoursViolation: { type: Boolean, default: false }, // Flag for working hours violation
+  violationDate: { type: Date }, // Date when working hours were violated
+  nextConsultationDate: { type: Date }, // Custom date for next consultation
+  requiresReassignment: { type: Boolean, default: false }, // Flag to indicate reassignment needed
+  reassignmentReason: { type: String }, // Reason for reassignment (working hours, etc.)
   
   // Followup tracking
   lastPaidConsultationDate: { type: Date }, // Date of last paid consultation

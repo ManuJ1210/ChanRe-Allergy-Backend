@@ -158,23 +158,23 @@ export const ensureCenterIsolation = (req, res, next) => {
     finalRole: userRole
   });
   
-  // Allow receptionists (either by role or by userType being 'User' with role 'receptionist')
-  if (req.user && (userRole === 'receptionist' || (req.user.userType === 'User' && req.user.role === 'receptionist'))) {
-    console.log('✅ Receptionist access granted for user:', {
+  // Allow receptionists and accountants (either by role or by userType being 'User' with role 'receptionist' or 'accountant')
+  if (req.user && (userRole === 'receptionist' || userRole === 'accountant' || (req.user.userType === 'User' && (req.user.role === 'receptionist' || req.user.role === 'accountant')))) {
+    console.log('✅ Receptionist/Accountant access granted for user:', {
       id: req.user._id,
       role: userRole,
       userType: req.user.userType,
       username: req.user.username,
       centerId: req.user.centerId,
       centerIdType: typeof req.user.centerId,
-      note: 'Receptionist can access billing endpoints'
+      note: 'Receptionist/Accountant can access billing endpoints'
     });
     return next();
   }
   
   // For all other roles, ensure they have a centerId
-  // Exception: Receptionists can work without centerId for billing operations
-  if (!req.user || (!req.user.centerId && req.user.role !== 'receptionist')) {
+  // Exception: Receptionists and accountants can work without centerId for billing operations
+  if (!req.user || (!req.user.centerId && req.user.role !== 'receptionist' && req.user.role !== 'accountant')) {
     console.log('❌ Center isolation failed - No user or centerId');
     return res.status(403).json({ 
       message: 'Access denied. Center-specific access required. User must be assigned to a center.',
@@ -249,7 +249,7 @@ export const ensureDoctorOrCenterAdmin = (req, res, next) => {
   return res.status(403).json({ message: 'Only doctors and CenterAdmin can perform this action.' });
 };
 
-// Allow center admin, center receptionist, and center doctor to perform patient management actions
+  // Allow center admin, center receptionist, center doctor, and accountant to perform patient management actions
 export const ensureCenterStaffOrDoctor = (req, res, next) => {
   console.log('🔍 ensureCenterStaffOrDoctor check:', {
     userRole: req.user?.role,
@@ -260,11 +260,12 @@ export const ensureCenterStaffOrDoctor = (req, res, next) => {
     centerId: req.user?.centerId
   });
   
-  // Allow center admin, center receptionist, and center doctor
+  // Allow center admin, center receptionist, center doctor, and accountant
   if (req.user && (
     req.user.role === 'centeradmin' || 
     req.user.role === 'receptionist' || 
-    req.user.role === 'doctor'
+    req.user.role === 'doctor' ||
+    req.user.role === 'accountant'
   )) {
     console.log('✅ ensureCenterStaffOrDoctor access granted for role:', req.user.role);
     return next();
@@ -272,7 +273,7 @@ export const ensureCenterStaffOrDoctor = (req, res, next) => {
   
   console.log('❌ ensureCenterStaffOrDoctor access denied for role:', req.user?.role);
   return res.status(403).json({ 
-    message: 'Only center admin, center receptionist, and center doctor can perform this action.' 
+    message: 'Only center admin, center receptionist, center doctor, and accountant can perform this action.' 
   });
 };
 

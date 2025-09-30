@@ -811,14 +811,26 @@ const markPatientAsViewed = async (req, res) => {
     const { patientId } = req.params;
     const doctorId = req.user._id;
 
-    // Check if patient exists and is assigned to this doctor
-    const patient = await Patient.findById(patientId).populate('assignedDoctor');
+    // Check if patient exists
+    const patient = await Patient.findById(patientId)
+      .populate('assignedDoctor')
+      .populate('currentDoctor');
     
     if (!patient) {
       return res.status(404).json({ message: 'Patient not found' });
     }
 
-    if (!patient.assignedDoctor || patient.assignedDoctor._id.toString() !== doctorId.toString()) {
+    // Check if doctor has access to this patient (either currently assigned or previously assigned)
+    const isCurrentlyAssigned = patient.assignedDoctor && 
+      patient.assignedDoctor._id.toString() === doctorId.toString();
+    
+    const wasPreviouslyAssigned = patient.reassignmentHistory && 
+      patient.reassignmentHistory.some(reassignment => 
+        reassignment.previousDoctor && 
+        reassignment.previousDoctor.toString() === doctorId.toString()
+      );
+
+    if (!isCurrentlyAssigned && !wasPreviouslyAssigned) {
       return res.status(403).json({ message: 'Patient is not assigned to you' });
     }
 
@@ -828,6 +840,10 @@ const markPatientAsViewed = async (req, res) => {
       patient.viewedAt = new Date();
       patient.appointmentStatus = 'viewed'; // Update appointment status for receptionist view
       await patient.save();
+      
+      console.log(`✅ Patient ${patient.name} marked as viewed by doctor ${req.user.name}`);
+    } else {
+      console.log(`ℹ️ Patient ${patient.name} was already marked as viewed`);
     }
 
     res.json({ 
@@ -836,7 +852,8 @@ const markPatientAsViewed = async (req, res) => {
         _id: patient._id,
         name: patient.name,
         viewedByDoctor: patient.viewedByDoctor,
-        viewedAt: patient.viewedAt
+        viewedAt: patient.viewedAt,
+        appointmentStatus: patient.appointmentStatus
       }
     });
   } catch (error) {

@@ -36,6 +36,8 @@ import reassignedInvoiceRoutes from './routes/reassignedInvoiceRoutes.js';
 import reassignmentBillingRoutes from './routes/reassignmentBillingRoutes.js';
 import paymentLogRoutes from './routes/paymentLogRoutes.js';
 import appointmentRoutes from './routes/appointmentRoutes.js';
+import workingHoursRoutes from './routes/workingHoursRoutes.js';
+import accountantRoutes from './routes/accountantRoutes.js';
 
 
 dotenv.config();
@@ -151,6 +153,8 @@ app.use('/api/reassigned-patients', reassignedPatientRoutes);
 app.use('/api/patients', reassignRoutes);
 app.use('/api/reassigned-invoices', reassignedInvoiceRoutes);
 app.use('/api/appointments', appointmentRoutes);
+app.use('/api/working-hours', workingHoursRoutes);
+app.use('/api/accountants', accountantRoutes);
 
 
 // Use environment variable or fallback to local MongoDB
