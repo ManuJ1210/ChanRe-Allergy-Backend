@@ -399,9 +399,10 @@ export const createTestRequest = async (req, res) => {
       testType,
       testDescription,
       urgency,
-      notes
+      notes,
+      selectedTests
     } = req.body;
-    console.log('Extracted data:', { doctorId, patientId, testType, testDescription, urgency, notes });
+    console.log('Extracted data:', { doctorId, patientId, testType, testDescription, urgency, notes, selectedTests });
 
     // Get doctor information - check both User and Doctor models
     console.log('Looking for doctor with ID:', doctorId);
@@ -444,6 +445,7 @@ export const createTestRequest = async (req, res) => {
       patientId,
       testType,
       testDescription,
+      selectedTests: selectedTests || [], // ✅ NEW: Store selected tests from catalog
       urgency: urgency || 'Normal',
       notes,
       centerId: patient.centerId,

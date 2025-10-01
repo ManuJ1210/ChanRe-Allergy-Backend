@@ -38,6 +38,7 @@ import paymentLogRoutes from './routes/paymentLogRoutes.js';
 import appointmentRoutes from './routes/appointmentRoutes.js';
 import workingHoursRoutes from './routes/workingHoursRoutes.js';
 import accountantRoutes from './routes/accountantRoutes.js';
+import labTestRoutes from './routes/labTestRoutes.js';
 
 
 dotenv.config();
@@ -155,6 +156,7 @@ app.use('/api/reassigned-invoices', reassignedInvoiceRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/working-hours', workingHoursRoutes);
 app.use('/api/accountants', accountantRoutes);
+app.use('/api/lab-tests', labTestRoutes);
 
 
 // Use environment variable or fallback to local MongoDB

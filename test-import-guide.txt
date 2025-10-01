@@ -1,0 +1,45 @@
+CREATE TEST EXCEL FILE - COPY THIS INTO EXCEL
+================================================
+
+STEP 1: Open Microsoft Excel or Google Sheets
+
+STEP 2: Copy EVERYTHING below (including the header row) starting from "Code"
+
+STEP 3: Paste into Excel starting at cell A1
+
+STEP 4: Save as "test-import.xlsx" in the backend folder
+
+========== COPY FROM HERE ==========
+
+Code	Test Name	Cost	Category	Description
+CBC001	Complete Blood Count	500	Hematology	Measures blood cell counts
+HB001	Hemoglobin Test	200	Hematology	Measures hemoglobin levels
+ESR001	ESR Test	150	Hematology	Inflammation marker
+PLT001	Platelet Count	200	Hematology	Clotting assessment
+WBC001	WBC Count	250	Hematology	Infection screening
+IGE001	Total IgE	800	Immunology	Allergy screening
+ALLP001	Allergy Panel Food	3500	Allergy	Tests for food allergens
+ALLP002	Allergy Panel Inhalants	3500	Allergy	Environmental allergens
+GLUC001	Fasting Glucose	150	Biochemistry	Diabetes screening
+HbA1c001	HbA1c Test	400	Biochemistry	3-month glucose average
+LFT001	Liver Function Test	600	Biochemistry	Liver health markers
+KFT001	Kidney Function Test	550	Biochemistry	Kidney health markers
+LIPID001	Lipid Profile	500	Biochemistry	Cholesterol levels
+TSH001	TSH Test	300	Endocrinology	Thyroid function
+T3001	T3 Test	300	Endocrinology	Thyroid hormone
+T4001	T4 Test	300	Endocrinology	Thyroid hormone
+URINE001	Urine Routine	150	Pathology	Basic urine analysis
+CRP001	CRP Test	400	Immunology	Inflammation marker
+VITD001	Vitamin D Test	1200	Biochemistry	Vitamin D levels
+VITB12001	Vitamin B12 Test	800	Biochemistry	B12 deficiency check
+
+========== COPY UNTIL HERE ==========
+
+STEP 5: After saving, run this command:
+node import-lab-tests.js test-import.xlsx
+
+STEP 6: You should see:
+✅ Successfully imported 20 lab tests!
+
+STEP 7: Once this works, create your full 1135 tests file!
+

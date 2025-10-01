@@ -840,7 +840,7 @@ export const getAllBillingData = async (req, res) => {
       billing: { $exists: true, $ne: null },
       'billing.status': { $exists: true, $ne: null }
     })
-      .select('testType testDescription status urgency notes centerId centerName centerCode doctorId doctorName patientId patientName patientPhone patientAddress billing createdAt updatedAt')
+      .select('testType testDescription selectedTests status urgency notes centerId centerName centerCode doctorId doctorName patientId patientName patientPhone patientAddress billing createdAt updatedAt')
       .populate('doctorId', 'name email phone specializations')
       .populate('patientId', 'name phone address age gender')
       .sort({ createdAt: -1 })
@@ -880,7 +880,7 @@ export const getBillingDataForCenter = async (req, res) => {
       billing: { $exists: true, $ne: null },
       'billing.status': { $exists: true, $ne: null }
     })
-      .select('testType testDescription status urgency notes centerId centerName centerCode doctorId doctorName patientId patientName patientPhone patientAddress billing createdAt updatedAt')
+      .select('testType testDescription selectedTests status urgency notes centerId centerName centerCode doctorId doctorName patientId patientName patientPhone patientAddress billing createdAt updatedAt')
       .populate('doctorId', 'name email phone specializations')
       .populate('patientId', 'name phone address age gender')
       .sort({ createdAt: -1 })

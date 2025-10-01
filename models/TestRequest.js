@@ -20,6 +20,20 @@ const testRequestSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  // ✅ NEW: Selected lab tests from catalog
+  selectedTests: [{
+    testId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'LabTest'
+    },
+    testCode: String,
+    testName: String,
+    cost: Number,
+    quantity: {
+      type: Number,
+      default: 1
+    }
+  }],
   urgency: {
     type: String,
     enum: ['Normal', 'Urgent', 'Emergency'],
