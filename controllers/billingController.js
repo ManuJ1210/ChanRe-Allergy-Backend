@@ -935,13 +935,23 @@ export const cancelBill = async (req, res) => {
       });
     }
 
-    // Check if bill is already paid
-    if (testRequest.billing.status === 'paid') {
+    // Check if bill is already cancelled or refunded
+    if (testRequest.billing.status === 'cancelled') {
       return res.status(400).json({ 
-        message: 'Cannot cancel bill. Bill has already been paid.',
+        message: 'Cannot cancel bill. Bill has already been cancelled.',
         currentBillingStatus: testRequest.billing.status
       });
     }
+
+    if (testRequest.billing.status === 'refunded') {
+      return res.status(400).json({ 
+        message: 'Cannot cancel bill. Bill has already been refunded.',
+        currentBillingStatus: testRequest.billing.status
+      });
+    }
+
+    // Allow cancellation of paid bills - user can process refund separately
+    // No need to prevent cancellation based on payment status
 
     // Update billing status to cancelled
     testRequest.billing.status = 'cancelled';
@@ -4459,6 +4469,143 @@ export const processRefund = async (req, res) => {
       success: false,
       message: 'Failed to process refund',
       error: error.message
+    });
+  }
+};
+
+// Process refund for test request
+export const processTestRequestRefund = async (req, res) => {
+  console.log('🔥 FUNCTION CALLED - processTestRequestRefund');
+  try {
+    console.log('🚀 processTestRequestRefund called for test request:', req.params.id);
+    console.log('📋 Request body:', req.body);
+    console.log('📋 Request params:', req.params);
+    
+    const { id } = req.params;
+    const { amount, refundMethod, reason, notes } = req.body;
+
+    // Simple validation first
+    if (!amount || !refundMethod || !reason) {
+      console.log('❌ Missing required fields');
+      return res.status(400).json({
+        success: false,
+        message: 'Amount, refund method, and reason are required'
+      });
+    }
+
+    console.log('✅ Basic validation passed');
+
+    // Find test request
+    console.log('🔍 Finding test request with ID:', id);
+    const testRequest = await TestRequest.findById(id).select('patientName centerId centerName centerCode _id status billing');
+    
+    if (!testRequest) {
+      console.log('❌ Test request not found');
+      return res.status(404).json({ message: 'Test request not found' });
+    }
+
+    console.log('✅ Test request found:', {
+      id: testRequest._id,
+      patientName: testRequest.patientName,
+      billingStatus: testRequest.billing?.status
+    });
+
+    // Check if billing exists and is cancelled
+    if (!testRequest.billing || testRequest.billing.status !== 'cancelled') {
+      console.log('❌ Bill not cancelled:', testRequest.billing?.status);
+      return res.status(400).json({ 
+        message: 'Cannot process refund. Bill must be cancelled first.',
+        currentBillingStatus: testRequest.billing?.status || 'not_generated'
+      });
+    }
+
+    console.log('✅ Bill is cancelled, proceeding with refund');
+
+    const refundAmount = parseFloat(amount);
+    const paidAmount = testRequest.billing.paidAmount || 0;
+
+    console.log('💰 Refund details:', { refundAmount, paidAmount });
+
+    // Validate refund amount
+    if (refundAmount <= 0 || refundAmount > paidAmount) {
+      console.log('❌ Invalid refund amount');
+      return res.status(400).json({
+        success: false,
+        message: `Refund amount must be between 0 and ${paidAmount}`
+      });
+    }
+
+    console.log('✅ Refund amount validation passed');
+
+    // Update billing status to refunded
+    testRequest.billing.status = 'refunded';
+    testRequest.billing.refundedAt = new Date();
+    testRequest.billing.refundedBy = req.user?.id || req.user?._id || 'system';
+    testRequest.billing.refundMethod = refundMethod;
+    testRequest.billing.refundReason = reason;
+    testRequest.billing.refundNotes = notes || '';
+    testRequest.billing.refundAmount = refundAmount;
+
+    console.log('✅ Billing data updated');
+
+    // Save to database
+    console.log('💾 Saving test request to database');
+    const updated = await testRequest.save();
+    console.log('✅ Test request saved successfully');
+
+    // Log refund transaction
+    try {
+      console.log('💳 Logging test request refund transaction');
+      
+      const metadata = {
+        ipAddress: req.ip || req.connection?.remoteAddress || 'unknown',
+        userAgent: req.headers?.['user-agent'] || 'unknown',
+        source: 'web',
+        externalRefundId: `REF-${Date.now()}-${testRequest._id.toString().slice(-6)}`
+      };
+
+      await logPatientBillingRefund(
+        testRequest._id,
+        refundAmount,
+        refundMethod,
+        reason,
+        req.user?.id || req.user?._id || 'system',
+        metadata
+      );
+      
+      console.log('✅ Test request refund logged successfully');
+    } catch (paymentLogError) {
+      console.error('❌ Error logging refund transaction:', paymentLogError);
+      // Continue execution - payment logging failure should not stop the transaction
+    }
+
+    console.log('✅ Refund processed successfully');
+
+    res.status(200).json({
+      success: true,
+      message: 'Refund processed successfully',
+      refundAmount: refundAmount,
+      testRequest: {
+        _id: updated._id,
+        status: updated.status,
+        billing: {
+          status: updated.billing.status,
+          refundedAt: updated.billing.refundedAt,
+          refundAmount: updated.billing.refundAmount,
+          refundMethod: updated.billing.refundMethod,
+          refundReason: updated.billing.refundReason
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error processing refund:', error);
+    console.error('❌ Error stack:', error.stack);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process refund',
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };

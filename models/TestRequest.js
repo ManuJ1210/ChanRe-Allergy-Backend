@@ -107,7 +107,7 @@ const testRequestSchema = new mongoose.Schema({
   billing: {
     status: {
       type: String,
-      enum: ['not_generated', 'generated', 'payment_received', 'paid', 'partially_paid', 'verified', 'cancelled'],
+      enum: ['not_generated', 'generated', 'payment_received', 'paid', 'partially_paid', 'verified', 'cancelled', 'refunded'],
       default: 'not_generated'
     },
     amount: { type: Number, default: 0 },
@@ -145,7 +145,14 @@ const testRequestSchema = new mongoose.Schema({
     verificationNotes: String,
     // ✅ NEW: Update tracking fields
     updatedBy: String, // ✅ NEW: Track who updated
-    updatedAt: Date // ✅ NEW: Track when updated
+    updatedAt: Date, // ✅ NEW: Track when updated
+    // ✅ NEW: Refund tracking fields
+    refundedAt: Date,
+    refundedBy: String, // Can be ObjectId or string like 'system'
+    refundMethod: String,
+    refundReason: String,
+    refundNotes: String,
+    refundAmount: { type: Number, default: 0 }
   },
   
   // Lab staff assignment

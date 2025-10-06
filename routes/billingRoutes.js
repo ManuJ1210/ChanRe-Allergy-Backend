@@ -27,7 +27,8 @@ import {
   createComprehensiveInvoice,
   processPayment,
   cancelBillWithReason,
-  processRefund
+  processRefund,
+  processTestRequestRefund
 } from '../controllers/billingController.js';
 import { generateInvoicePDF } from '../controllers/invoiceController.js';
 
@@ -63,6 +64,10 @@ router.post('/process-payment', ensureCenterIsolation, processPayment);
 
 // Cancel bill with reason tracking
 router.post('/cancel-bill', ensureCenterIsolation, cancelBillWithReason);
+
+// Process refund for test request
+router.post('/test-requests/:id/refund', ensureCenterIsolation, processTestRequestRefund);
+
 
 // Process refund with tracking
 router.post('/process-refund', ensureCenterIsolation, processRefund);
