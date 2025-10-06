@@ -17,63 +17,21 @@ import {
 // Generate bill for a test request (Receptionist action)
 export const generateBillForTestRequest = async (req, res) => {
   try {
-    console.log('🚀 generateBillForTestRequest called for test request:', req.params.id);
-    console.log('📋 Request body:', req.body);
-    console.log('📋 Request params:', req.params);
-    console.log('👤 User context:', {
-      userId: req.user?._id || req.user?.id,
-      userRole: req.user?.role,
-      userType: req.user?.userType,
-      centerId: req.user?.centerId,
-      userObject: req.user,
-      hasRole: !!req.user?.role,
-      hasUserType: !!req.user?.userType,
-      roleValue: req.user?.role,
-      userTypeValue: req.user?.userType
-    });
-    
     // Early return for debugging - remove this after testing
     if (req.user?.role === 'receptionist') {
-      console.log('✅ Receptionist detected, proceeding with bill generation');
+      // Proceeding with bill generation
     } else {
-      console.log('❌ User is not a receptionist:', req.user?.role);
       return res.status(403).json({ 
         message: 'Access denied. Only receptionists can generate bills.',
         userRole: req.user?.role
       });
     }
     
-    // Additional debugging for middleware bypass
-    console.log('🔍 MIDDLEWARE DEBUG - User passed through ensureCenterIsolation:', {
-      hasUser: !!req.user,
-      userRole: req.user?.role,
-      userType: req.user?.userType,
-      hasCenterId: !!req.user?.centerId,
-      centerId: req.user?.centerId,
-      userId: req.user?._id,
-      username: req.user?.username,
-      note: 'If you see this, the middleware allowed the request through'
-    });
-    
     const { id } = req.params;
     const { items = [], taxes = 0, discounts = 0, currency = 'INR', notes } = req.body;
 
     // Validate ObjectId format
-    console.log('🔍 Validating ObjectId format:', {
-      id,
-      isValidFormat: id.match(/^[0-9a-fA-F]{24}$/),
-      length: id?.length,
-      type: typeof id
-    });
-    
     if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
-      console.log('❌ ObjectId validation failed:', {
-        id,
-        isValidFormat: id.match(/^[0-9a-fA-F]{24}$/),
-        length: id?.length,
-        type: typeof id
-      });
-      
       return res.status(400).json({ 
         message: 'Invalid test request ID format',
         receivedId: id,
@@ -82,69 +40,13 @@ export const generateBillForTestRequest = async (req, res) => {
       });
     }
 
-    console.log('📋 Request details:', {
-      testRequestId: id,
-      itemsCount: items.length,
-      taxes,
-      discounts,
-      currency,
-      hasNotes: !!notes,
-      items: items,
-      notes: notes
-    });
-
     // Find the test request in database
-    console.log('🔍 Searching for test request with ID:', id);
-    console.log('🔍 MongoDB ObjectId format check:', {
-      id,
-      isValidFormat: id.match(/^[0-9a-fA-F]{24}$/),
-      length: id.length
-    });
-    
-    console.log('🔍 Executing database query...');
-    console.log('🔍 Database connection status:', {
-      mongooseConnectionState: mongoose.connection.readyState,
-      readyStateValues: {
-        0: 'disconnected',
-        1: 'connected',
-        2: 'connecting',
-        3: 'disconnecting'
-      }
-    });
     
     const testRequest = await TestRequest.findById(id)
       .select('patientName centerId centerName centerCode _id status billing doctorId isActive workflowStage patientId')
       .populate('patientId', 'name phone address age gender');
-    console.log('🔍 Database query completed');
-    console.log('🔍 Test request patient data:', {
-      testRequestId: id,
-      patientName: testRequest.patientName,
-      patientId: testRequest.patientId,
-      patientIdName: testRequest.patientId?.name,
-      finalPatientName: testRequest.patientName || testRequest.patientId?.name || 'Unknown Patient'
-    });
     
     if (!testRequest) {
-      console.log('❌ Test request not found with ID:', id);
-      
-      // Try to find any test request to see if the issue is with the ID format
-      console.log('🔍 Searching for sample test requests...');
-      try {
-        const allTestRequests = await TestRequest.find().limit(5).select('_id status');
-        console.log('🔍 Sample test requests in database:', allTestRequests);
-        
-        // Also try to find by the exact ID to see if there's a format issue
-        const exactMatch = await TestRequest.findOne({ _id: id });
-        console.log('🔍 Exact ID match result:', exactMatch);
-        
-        // Try to find by string ID
-        const stringMatch = await TestRequest.findOne({ _id: id.toString() });
-        console.log('🔍 String ID match result:', stringMatch);
-        
-      } catch (dbError) {
-        console.error('❌ Database query error:', dbError);
-      }
-      
       return res.status(404).json({ 
         message: 'Test request not found',
         searchedId: id,
@@ -152,27 +54,8 @@ export const generateBillForTestRequest = async (req, res) => {
       });
     }
 
-    // Log the complete test request for debugging
-    console.log('📋 Complete test request data:', JSON.stringify(testRequest, null, 2));
-    console.log('📋 Test request ID type check:', {
-      originalId: id,
-      originalIdType: typeof id,
-      testRequestId: testRequest._id,
-      testRequestIdType: typeof testRequest._id,
-      idMatch: id === testRequest._id.toString(),
-      idStrictMatch: id === testRequest._id
-    });
-
     // Validate test request structure
-    console.log('🔍 Validating test request structure...');
     if (!testRequest._id || !testRequest.status) {
-      console.log('❌ Test request has invalid structure:', {
-        testRequestId: id,
-        hasId: !!testRequest._id,
-        hasStatus: !!testRequest.status,
-        testRequest: testRequest
-      });
-      
       return res.status(400).json({ 
         message: 'Test request has invalid structure',
         missingFields: {
@@ -184,45 +67,16 @@ export const generateBillForTestRequest = async (req, res) => {
         }
       });
     }
-    console.log('✅ Test request structure validation passed');
 
     // Check if test request is active
-    console.log('🔍 Checking test request active status...');
     if (testRequest.isActive === false) {
-      console.log('❌ Test request is inactive:', {
-        testRequestId: id,
-        isActive: testRequest.isActive
-      });
-      
       return res.status(400).json({ 
         message: 'Cannot generate bill for inactive test request',
         testRequestStatus: 'inactive'
       });
     }
-    console.log('✅ Test request is active');
-
-    console.log('📋 Test request found:', {
-      testRequestId: id,
-      currentStatus: testRequest.status,
-      currentBillingStatus: testRequest.billing?.status || 'not_generated',
-      hasBilling: !!testRequest.billing,
-      patientName: testRequest.patientName,
-      centerId: testRequest.centerId,
-      centerName: testRequest.centerName,
-      centerCode: testRequest.centerCode
-    });
-
     // Validate test request has required fields
-    console.log('🔍 Validating required fields...');
     if (!testRequest.patientName || !testRequest.centerId) {
-      console.log('❌ Test request missing required fields:', {
-        testRequestId: id,
-        hasPatientName: !!testRequest.patientName,
-        hasCenterId: !!testRequest.centerId,
-        patientName: testRequest.patientName,
-        centerId: testRequest.centerId
-      });
-      
       return res.status(400).json({ 
         message: 'Test request is missing required fields (patientName or centerId)',
         missingFields: {
@@ -235,37 +89,14 @@ export const generateBillForTestRequest = async (req, res) => {
         }
       });
     }
-    console.log('✅ Required fields validation passed');
 
     // Validate center access (if user has a centerId)
-    console.log('🔍 Validating center access...');
-    console.log('🔍 Center access check:', {
-      testRequestId: id,
-      userCenterId: req.user.centerId,
-      testRequestCenterId: testRequest.centerId,
-      userRole: req.user.role,
-      userType: req.user.userType,
-      centerMatch: req.user.centerId && req.user.centerId.toString() === testRequest.centerId.toString()
-    });
-    
     // For receptionists, allow access regardless of centerId for now
     if (req.user.role === 'receptionist') {
-      console.log('✅ Receptionist access granted for billing operations:', {
-        userId: req.user._id,
-        userRole: req.user.role,
-        userCenterId: req.user.centerId,
-        testRequestCenterId: testRequest.centerId
-      });
+      // Receptionist access granted for billing operations
     } else {
       // For non-receptionists, require centerId match
       if (req.user.centerId && req.user.centerId.toString() !== testRequest.centerId.toString()) {
-        console.log('❌ Center access denied for non-receptionist:', {
-          testRequestId: id,
-          userCenterId: req.user.centerId,
-          testRequestCenterId: testRequest.centerId,
-          userRole: req.user.role
-        });
-        
         return res.status(403).json({ 
           message: 'Access denied. You can only generate bills for test requests in your center.',
           userCenterId: req.user.centerId,
@@ -273,95 +104,39 @@ export const generateBillForTestRequest = async (req, res) => {
         });
       }
     }
-    
-    console.log('✅ Center access validation passed');
 
     // Check if bill already exists
-    console.log('🔍 Checking billing status:', {
-      testRequestId: id,
-      hasBilling: !!testRequest.billing,
-      billingStatus: testRequest.billing?.status || 'not_generated',
-      mainStatus: testRequest.status
-    });
-    
     // Check if test request is in correct status for billing
-    console.log('🔍 Checking test request status...');
     if (testRequest.status !== 'Billing_Pending') {
-      console.log('❌ Bill generation failed - incorrect test request status:', {
-        testRequestId: id,
-        currentStatus: testRequest.status,
-        requiredStatus: 'Billing_Pending'
-      });
-      
       return res.status(400).json({ 
         message: `Cannot generate bill. Test request must be in 'Billing_Pending' status. Current status: ${testRequest.status}`,
         currentStatus: testRequest.status,
         requiredStatus: 'Billing_Pending'
       });
     }
-    console.log('✅ Test request status validation passed');
 
     // Check if test request is in correct workflow stage
-    console.log('🔍 Checking workflow stage...');
     if (testRequest.workflowStage && testRequest.workflowStage !== 'billing') {
-      console.log('❌ Bill generation failed - incorrect workflow stage:', {
-        testRequestId: id,
-        currentWorkflowStage: testRequest.workflowStage,
-        requiredWorkflowStage: 'billing'
-      });
-      
       return res.status(400).json({ 
         message: `Cannot generate bill. Test request must be in 'billing' workflow stage. Current stage: ${testRequest.workflowStage}`,
         currentWorkflowStage: testRequest.workflowStage,
         requiredWorkflowStage: 'billing'
       });
     }
-    console.log('✅ Workflow stage validation passed');
 
     // Check if billing already exists and is in correct status
-    console.log('🔍 Checking existing billing...');
     if (testRequest.billing) {
-      console.log('🔍 Checking existing billing:', {
-        testRequestId: id,
-        billingStatus: testRequest.billing.status,
-        billingExists: true
-      });
-      
       if (testRequest.billing.status !== 'not_generated') {
-        console.log('❌ Bill generation failed - bill already exists:', {
-          testRequestId: id,
-          currentBillingStatus: testRequest.billing.status,
-          currentStatus: testRequest.status,
-          billingExists: true
-        });
-        
         return res.status(400).json({ 
           message: `Cannot generate bill. Current billing status: ${testRequest.billing.status}`,
           currentBillingStatus: testRequest.billing.status,
           currentStatus: testRequest.status
         });
       }
-      console.log('✅ Existing billing validation passed');
-    } else {
-      console.log('✅ No existing billing found - proceeding with bill generation');
     }
 
     // Validate items array
-    console.log('🔍 Validating items array...');
-    console.log('🔍 Validating items array:', {
-      itemsType: typeof items,
-      isArray: Array.isArray(items),
-      itemsLength: items?.length,
-      items: items
-    });
-    
     if (!Array.isArray(items) || items.length === 0) {
-      console.log('❌ Items validation failed:', {
-        itemsType: typeof items,
-        isArray: Array.isArray(items),
-        itemsLength: items?.length
-      });
-      
       return res.status(400).json({ 
         message: 'Items array is required and must contain at least one item',
         receivedItems: items,
@@ -371,23 +146,12 @@ export const generateBillForTestRequest = async (req, res) => {
         }
       });
     }
-    console.log('✅ Items array validation passed');
 
     // Validate each item has required fields
-    console.log('🔍 Validating individual items...');
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      console.log(`🔍 Validating item ${i + 1}:`, {
-        item,
-        hasName: !!item.name,
-        nameTrimmed: item.name?.trim(),
-        unitPrice: item.unitPrice,
-        unitPriceType: typeof item.unitPrice,
-        unitPriceValid: typeof item.unitPrice === 'number' && item.unitPrice > 0
-      });
       
       if (!item.name || !item.name.trim()) {
-        console.log(`❌ Item ${i + 1} validation failed - missing name:`, item);
         return res.status(400).json({ 
           message: `Item ${i + 1} must have a name`,
           itemIndex: i,
@@ -396,7 +160,6 @@ export const generateBillForTestRequest = async (req, res) => {
         });
       }
       if (typeof item.unitPrice !== 'number' || item.unitPrice <= 0) {
-        console.log(`❌ Item ${i + 1} validation failed - invalid unit price:`, item);
         return res.status(400).json({ 
           message: `Item ${i + 1} must have a valid unit price greater than 0`,
           itemIndex: i,
@@ -405,10 +168,8 @@ export const generateBillForTestRequest = async (req, res) => {
         });
       }
     }
-    console.log('✅ All items validation passed');
 
     // Compute totals
-    console.log('💰 Computing bill totals...');
     const itemsWithTotals = items.map((it) => ({
       name: it.name.trim(),
       code: it.code || '',
@@ -417,43 +178,14 @@ export const generateBillForTestRequest = async (req, res) => {
       total: Number(it.quantity || 1) * Number(it.unitPrice || 0)
     }));
     
-    console.log('💰 Items with totals:', itemsWithTotals);
-    
     const subTotal = itemsWithTotals.reduce((sum, it) => sum + (it.total || 0), 0);
     const totalAmount = Math.max(0, subTotal + Number(taxes || 0) - Number(discounts || 0));
     
-    console.log('💰 Bill calculation summary:', {
-      subTotal,
-      taxes: Number(taxes || 0),
-      discounts: Number(discounts || 0),
-      totalAmount
-    });
-
     // Generate a simple invoice number
     const prefix = testRequest.centerCode || testRequest.centerId?.code || 'INV';
     const invoiceNumber = `${prefix}-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}-${String(testRequest._id).slice(-5)}`;
 
-    console.log('💰 Invoice number generation:', {
-      prefix,
-      centerCode: testRequest.centerCode,
-      centerIdCode: testRequest.centerId?.code,
-      fallbackPrefix: 'INV',
-      finalPrefix: prefix,
-      invoiceNumber
-    });
-
-    console.log('💰 Bill calculation summary:', {
-      testRequestId: id,
-      subTotal,
-      taxes: Number(taxes || 0),
-      discounts: Number(discounts || 0),
-      totalAmount,
-      invoiceNumber
-    });
-
     // Update test request with billing information
-    console.log('💾 Updating test request with billing information...');
-    
     const billingData = {
       status: 'generated',
       amount: totalAmount,
@@ -467,29 +199,15 @@ export const generateBillForTestRequest = async (req, res) => {
       notes
     };
     
-    console.log('💾 Billing data to be saved:', billingData);
-    
     testRequest.billing = billingData;
     testRequest.status = 'Billing_Generated';
     testRequest.workflowStage = 'billing';
     testRequest.updatedAt = new Date();
     
-    console.log('💾 Test request updated with billing data');
-
     // Save to database
-    console.log('💾 Saving test request to database...');
     const updated = await testRequest.save();
-    console.log('✅ Bill saved to database successfully');
-    console.log('✅ Updated test request:', {
-      id: updated._id,
-      status: updated.status,
-      workflowStage: updated.workflowStage,
-      billingStatus: updated.billing?.status,
-      billingAmount: updated.billing?.amount
-    });
 
     // Notify stakeholders
-    console.log('📧 Setting up notifications...');
     try {
       const recipients = await User.find({
         $or: [
@@ -498,12 +216,6 @@ export const generateBillForTestRequest = async (req, res) => {
           { role: 'superadmin', isSuperAdminStaff: true }
         ],
         isDeleted: { $ne: true }
-      });
-
-      console.log(`📧 Found ${recipients.length} recipients for notifications:`, {
-        doctorId: testRequest.doctorId,
-        centerId: testRequest.centerId,
-        recipientsCount: recipients.length
       });
 
       for (const r of recipients) {
@@ -526,33 +238,15 @@ export const generateBillForTestRequest = async (req, res) => {
         });
         await n.save();
       }
-      console.log('✅ Notifications sent successfully');
     } catch (notifyErr) {
-      console.error('❌ Billing generation notification error:', notifyErr);
+      // Billing generation notification error
     }
-
-    console.log('🎉 Bill generated successfully');
-    console.log('🎉 Final response data:', {
-      message: 'Bill generated successfully',
-      testRequestId: updated._id,
-      testRequestStatus: updated.status,
-      billingStatus: updated.billing?.status,
-      billingAmount: updated.billing?.amount
-    });
 
     res.status(200).json({ 
       message: 'Bill generated successfully', 
       testRequest: updated 
     });
   } catch (error) {
-    console.error('❌ Error in bill generation:', error);
-    console.error('❌ Error details:', {
-      name: error.name,
-      message: error.message,
-      stack: error.stack,
-      code: error.code
-    });
-    
     res.status(500).json({ 
       message: 'Failed to generate bill', 
       error: error.message,
@@ -565,8 +259,6 @@ export const generateBillForTestRequest = async (req, res) => {
 // Mark bill as paid (Receptionist action)
 export const markBillPaidForTestRequest = async (req, res) => {
   try {
-    console.log('🚀 markBillPaidForTestRequest called for test request:', req.params.id);
-    
     const { id } = req.params;
     const { paymentMethod, transactionId, verificationNotes } = req.body;
 
@@ -574,21 +266,7 @@ export const markBillPaidForTestRequest = async (req, res) => {
     let receiptFileName = null;
     if (req.file) {
       receiptFileName = req.file.filename;
-      console.log('📁 Receipt file uploaded:', {
-        filename: req.file.filename,
-        originalname: req.file.originalname,
-        mimetype: req.file.mimetype,
-        size: req.file.size
-      });
     }
-
-    console.log('📋 Payment details:', {
-      testRequestId: id,
-      paymentMethod,
-      hasTransactionId: !!transactionId,
-      hasReceipt: !!receiptFileName,
-      hasNotes: !!verificationNotes
-    });
 
     // Validate ObjectId format
     if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
@@ -605,23 +283,6 @@ export const markBillPaidForTestRequest = async (req, res) => {
     if (!testRequest) {
       return res.status(404).json({ message: 'Test request not found' });
     }
-
-    console.log('🔍 Test request patient data (payment):', {
-      testRequestId: id,
-      patientName: testRequest.patientName,
-      patientId: testRequest.patientId,
-      patientIdName: testRequest.patientId?.name,
-      patientIdType: typeof testRequest.patientId,
-      testType: testRequest.testType,
-      finalPatientName: testRequest.patientName || testRequest.patientId?.name || 'Unknown Patient'
-    });
-
-    console.log('📋 Test request found:', {
-      testRequestId: id,
-      currentStatus: testRequest.status,
-      currentBillingStatus: testRequest.billing?.status || 'not_generated',
-      hasBilling: !!testRequest.billing
-    });
 
     // Check if billing exists and is in correct status
     if (!testRequest.billing || testRequest.billing.status === 'not_generated') {
@@ -649,14 +310,6 @@ export const markBillPaidForTestRequest = async (req, res) => {
     const newPaidAmount = currentPaidAmount + paymentAmount;
     const totalAmount = testRequest.billing.amount;
     
-    console.log('💰 Payment calculation:', {
-      paymentAmount,
-      currentPaidAmount,
-      newPaidAmount,
-      totalAmount,
-      isFullyPaid: newPaidAmount >= totalAmount
-    });
-    
     // Update payment information
     testRequest.billing.paidAmount = newPaidAmount;
     testRequest.billing.paidAt = new Date();
@@ -672,24 +325,17 @@ export const markBillPaidForTestRequest = async (req, res) => {
       testRequest.billing.status = 'paid';
       testRequest.status = 'Billing_Paid';
       testRequest.workflowStage = 'lab_assignment';
-      console.log('✅ Bill fully paid - ready for lab processing');
     } else {
       // Partially paid - also ready for lab processing (allow lab to see and work on it)
       testRequest.billing.status = 'partially_paid';
       testRequest.status = 'Billing_Paid'; // Allow lab to see it
       testRequest.workflowStage = 'lab_assignment'; // Move to lab stage
-      console.log('💰 Bill partially paid - ready for lab processing with partial payment');
     }
     
     testRequest.updatedAt = new Date();
-    
-    console.log('✅ Payment marked as paid - test request ready for lab processing');
-
-    console.log('💰 Updating billing status to paid');
 
     // Save to database
     const updated = await testRequest.save();
-    console.log('✅ Bill marked as paid successfully');
 
     // LOG PAYMENT TRANSACTION
     try {
@@ -712,9 +358,7 @@ export const markBillPaidForTestRequest = async (req, res) => {
       };
 
       await logPaymentTransaction(paymentData, testRequest._id, req.user.id || req.user._id, metadata);
-      console.log('✅ Payment transaction logged successfully');
     } catch (paymentLogError) {
-      console.error('❌ Error logging payment transaction:', paymentLogError);
       // Continue execution - payment logging failure should not stop the transaction
     }
 
@@ -749,8 +393,6 @@ export const markBillPaidForTestRequest = async (req, res) => {
         notificationMessage = `Partial payment received for ${patientName} - ${testRequest.testType || 'Unknown Test'}. Amount paid: ${testRequest.billing.currency} ${newPaidAmount} of ${testRequest.billing.currency} ${totalAmount}. Test request is ready for lab processing with partial payment status.`;
       }
 
-      console.log(`📧 Sending ${newPaidAmount >= totalAmount ? 'full payment' : 'partial payment'} notifications to ${recipients.length} recipients`);
-
       for (const r of recipients) {
         const n = new Notification({
           recipient: r._id,
@@ -774,18 +416,15 @@ export const markBillPaidForTestRequest = async (req, res) => {
         });
         await n.save();
       }
-      console.log('✅ Payment notifications sent successfully');
     } catch (notifyErr) {
-      console.error('❌ Payment notification error:', notifyErr);
+      // Payment notification error
     }
 
-    console.log('🎉 Payment marked successfully - test request ready for lab processing');
     res.status(200).json({ 
       message: 'Payment marked successfully. Test request is now ready for lab processing.', 
       testRequest: updated 
     });
   } catch (error) {
-    console.error('❌ Error marking bill as paid:', error);
     res.status(500).json({ message: 'Failed to mark bill as paid', error: error.message });
   }
 };
@@ -793,8 +432,6 @@ export const markBillPaidForTestRequest = async (req, res) => {
 // Get billing information for a test request
 export const getBillingInfo = async (req, res) => {
   try {
-    console.log('🚀 getBillingInfo called for test request:', req.params.id);
-    
     const { id } = req.params;
 
     const testRequest = await TestRequest.findById(id)
@@ -804,12 +441,6 @@ export const getBillingInfo = async (req, res) => {
     if (!testRequest) {
       return res.status(404).json({ message: 'Test request not found' });
     }
-
-    console.log('📋 Billing info retrieved:', {
-      testRequestId: id,
-      hasBilling: !!testRequest.billing,
-      billingStatus: testRequest.billing?.status || 'not_generated'
-    });
 
     res.status(200).json({
       testRequest: {
@@ -824,7 +455,6 @@ export const getBillingInfo = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Error getting billing info:', error);
     res.status(500).json({ message: 'Failed to get billing information', error: error.message });
   }
 };
@@ -832,8 +462,6 @@ export const getBillingInfo = async (req, res) => {
 // Get all billing data for superadmin (across all centers)
 export const getAllBillingData = async (req, res) => {
   try {
-    console.log('🚀 getAllBillingData called by superadmin');
-    
     // Get all test requests with billing information from database - only include items with actual billing status
     const billingRequests = await TestRequest.find({ 
       isActive: true,
@@ -846,15 +474,12 @@ export const getAllBillingData = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean(); // Use lean() for better performance
 
-    console.log(`✅ Found ${billingRequests.length} billing requests for superadmin`);
-
     res.status(200).json({
       success: true,
       billingRequests,
       total: billingRequests.length
     });
   } catch (error) {
-    console.error('❌ Error fetching billing data:', error);
     res.status(500).json({ 
       success: false,
       message: 'Failed to fetch billing data',
@@ -866,8 +491,6 @@ export const getAllBillingData = async (req, res) => {
 // Get billing data for a specific center
 export const getBillingDataForCenter = async (req, res) => {
   try {
-    console.log('🚀 getBillingDataForCenter called for center:', req.user.centerId);
-    
     const centerId = req.user.centerId;
     if (!centerId) {
       return res.status(400).json({ message: 'Center ID is required' });
@@ -886,15 +509,12 @@ export const getBillingDataForCenter = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    console.log(`✅ Found ${billingRequests.length} billing requests for center ${centerId}`);
-
     res.status(200).json({
       success: true,
       billingRequests,
       total: billingRequests.length
     });
   } catch (error) {
-    console.error('❌ Error fetching center billing data:', error);
     res.status(500).json({ 
       success: false,
       message: 'Failed to fetch center billing data',
@@ -906,26 +526,13 @@ export const getBillingDataForCenter = async (req, res) => {
 // Cancel a bill
 export const cancelBill = async (req, res) => {
   try {
-    console.log('🚀 cancelBill called for test request:', req.params.id);
-    
     const { id } = req.params;
     const { cancellationReason } = req.body;
-
-    console.log('📋 Cancellation details:', {
-      testRequestId: id,
-      hasReason: !!cancellationReason
-    });
 
     const testRequest = await TestRequest.findById(id).select('patientName centerId centerName centerCode _id status billing');
     if (!testRequest) {
       return res.status(404).json({ message: 'Test request not found' });
     }
-
-    console.log('📋 Test request found:', {
-      testRequestId: id,
-      currentStatus: testRequest.status,
-      currentBillingStatus: testRequest.billing?.status || 'not_generated'
-    });
 
     // Check if billing exists
     if (!testRequest.billing || testRequest.billing.status === 'not_generated') {
@@ -963,18 +570,13 @@ export const cancelBill = async (req, res) => {
     testRequest.status = 'Pending';
     testRequest.updatedAt = new Date();
 
-    console.log('❌ Cancelling bill');
-
     // Save to database
     const updated = await testRequest.save();
-    console.log('✅ Bill cancelled successfully');
 
     // LOG PAYMENT CANCELLATION
     try {
       await logPaymentCancellation(testRequest._id, req.user.id || req.user._id, cancellationReason);
-      console.log('✅ Payment cancellation logged successfully');
     } catch (paymentLogError) {
-      console.error('❌ Error logging payment cancellation:', paymentLogError);
       // Continue execution - payment logging failure should not stop the transaction
     }
 
@@ -989,8 +591,6 @@ export const cancelBill = async (req, res) => {
         isDeleted: { $ne: true }
       });
 
-      console.log(`📧 Sending cancellation notifications to ${recipients.length} recipients`);
-
       for (const r of recipients) {
         const n = new Notification({
           recipient: r._id,
@@ -1003,19 +603,15 @@ export const cancelBill = async (req, res) => {
         });
         await n.save();
       }
-      console.log('✅ Cancellation notifications sent successfully');
     } catch (notifyErr) {
-      console.error('❌ Cancellation notification error:', notifyErr);
+      // Notification error
     }
-
-    console.log('🎉 Bill cancelled successfully');
 
     res.status(200).json({ 
       message: 'Bill cancelled successfully', 
       testRequest: updated 
     });
   } catch (error) {
-    console.error('❌ Error cancelling bill:', error);
     res.status(500).json({ message: 'Failed to cancel bill', error: error.message });
   }
 };

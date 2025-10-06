@@ -9,7 +9,8 @@ import {
   getAccountantDashboard,
   getAccountantStats,
   getAllBillsAndTransactions,
-  getFinancialReports
+  getFinancialReports,
+  fixAccountantCenterAssignment
 } from '../controllers/accountantController.js';
 import { protect, ensureRole, ensureCenterIsolation } from '../middleware/authMiddleware.js';
 
@@ -50,5 +51,8 @@ router.delete('/:id', ensureRole('superadmin', 'centeradmin'), ensureCenterIsola
 
 // Reset password - accessible by superadmin and centeradmin
 router.put('/:id/reset-password', ensureRole('superadmin', 'centeradmin'), ensureCenterIsolation, resetAccountantPassword);
+
+// Fix accountant center assignment - accessible by superadmin only
+router.post('/fix-center-assignment', ensureRole('superadmin'), fixAccountantCenterAssignment);
 
 export default router;

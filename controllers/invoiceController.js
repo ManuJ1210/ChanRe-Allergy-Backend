@@ -61,12 +61,6 @@ export const generateInvoicePDF = async (req, res) => {
     // Use either id or billingId parameter
     const testRequestId = id || billingId;
     
-    console.log('🚀 generateInvoicePDF called with:', {
-      id,
-      billingId,
-      testRequestId,
-      params: req.params
-    });
     
     if (!testRequestId) {
       return res.status(400).json({ message: 'Test request ID is required' });
@@ -80,21 +74,13 @@ export const generateInvoicePDF = async (req, res) => {
       .populate('centerId', 'name code');
     
     if (!testRequest) {
-      console.log('❌ Test request not found:', testRequestId);
       return res.status(404).json({ message: 'Test request not found' });
     }
     
     if (!testRequest.billing) {
-      console.log('❌ No billing information found for test request:', testRequestId);
       return res.status(400).json({ message: 'No billing information found for this test request' });
     }
     
-    console.log('✅ Generating PDF for test request:', {
-      testRequestId,
-      patientName: testRequest.patientName,
-      invoiceNumber: testRequest.billing.invoiceNumber,
-      amount: testRequest.billing.amount
-    });
     
     // Create PDF document using full page
     const doc = new PDFDocument({ 
@@ -527,10 +513,8 @@ export const generateInvoicePDF = async (req, res) => {
     // Finalize PDF
     doc.end();
     
-    console.log('✅ PDF generated successfully for test request:', testRequestId);
     
   } catch (error) {
-    console.error('❌ Error generating invoice PDF:', error);
     res.status(500).json({ message: 'Error generating invoice PDF', error: error.message });
   }
 };

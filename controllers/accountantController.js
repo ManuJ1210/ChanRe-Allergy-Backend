@@ -49,7 +49,6 @@ export const getAccountants = async (req, res) => {
       total
     });
   } catch (error) {
-    console.error('Error fetching accountants:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -76,7 +75,6 @@ export const getAccountant = async (req, res) => {
 
     res.json(accountant);
   } catch (error) {
-    console.error('Error fetching accountant:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -111,10 +109,17 @@ export const createAccountant = async (req, res) => {
       return res.status(400).json({ message: 'User already exists with this email or username' });
     }
 
-    // Determine centerId
+    // Determine centerId - ensure accountants are always assigned to a center
     let assignedCenterId = centerId;
     if (req.user.role !== 'superadmin') {
       assignedCenterId = req.user.centerId;
+    }
+
+    // For non-superadmin users, centerId is required
+    if (req.user.role !== 'superadmin' && !assignedCenterId) {
+      return res.status(400).json({ 
+        message: 'Accountant must be assigned to a center. Please ensure the user creating the accountant has a valid center assignment.' 
+      });
     }
 
     // Validate center exists
@@ -147,7 +152,6 @@ export const createAccountant = async (req, res) => {
 
     res.status(201).json(createdAccountant);
   } catch (error) {
-    console.error('Error creating accountant:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -228,7 +232,6 @@ export const updateAccountant = async (req, res) => {
 
     res.json(updatedAccountant);
   } catch (error) {
-    console.error('Error updating accountant:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -260,7 +263,6 @@ export const deleteAccountant = async (req, res) => {
 
     res.json({ message: 'Accountant deleted successfully' });
   } catch (error) {
-    console.error('Error deleting accountant:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -297,7 +299,6 @@ export const resetAccountantPassword = async (req, res) => {
 
     res.json({ message: 'Password reset successfully' });
   } catch (error) {
-    console.error('Error resetting password:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -345,7 +346,6 @@ export const getAccountantDashboard = async (req, res) => {
       centerId
     });
   } catch (error) {
-    console.error('Error fetching accountant dashboard:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -381,7 +381,6 @@ export const getAccountantStats = async (req, res) => {
       inactive
     });
   } catch (error) {
-    console.error('Error fetching accountant stats:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -392,7 +391,6 @@ export const getAllBillsAndTransactions = async (req, res) => {
     const centerId = req.user.centerId;
     const { startDate, endDate, billType, status, page = 1, limit = 50 } = req.query;
 
-    console.log('📊 Fetching bills and transactions for center:', centerId);
 
     // Build date filter
     const dateFilter = {};
@@ -588,7 +586,6 @@ export const getAllBillsAndTransactions = async (req, res) => {
       })
       .select('patientId doctorId billing status createdAt patientName');
 
-    console.log(`📋 Found ${testRequests.length} test requests for accountant billing`);
 
     const testBills = [];
     
@@ -643,8 +640,6 @@ export const getAllBillsAndTransactions = async (req, res) => {
       }
     }
 
-    console.log(`📊 Processed ${testBills.length} test bills`);
-    console.log(`📊 Total grouped invoices from patients: ${consultationBills.length}`);
 
     // 3. Get payment logs
     const paymentQuery = { centerId };
@@ -697,7 +692,6 @@ export const getAllBillsAndTransactions = async (req, res) => {
     const cancelledAmount = cancelledInvoices.reduce((sum, inv) => sum + (inv.amount || 0), 0);
     const refundedAmount = refundedInvoices.reduce((sum, inv) => sum + (inv.paidAmount || 0), 0);
 
-    console.log(`📊 Total invoices: ${allInvoices.length}, Active: ${activeInvoices.length}, Cancelled: ${cancelledInvoices.length}, Refunded: ${refundedInvoices.length}`);
 
     res.json({
       bills: paginatedInvoices,
@@ -721,7 +715,68 @@ export const getAllBillsAndTransactions = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Error fetching bills and transactions:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Fix accountants without proper center assignment
+export const fixAccountantCenterAssignment = async (req, res) => {
+  try {
+    // Only superadmin can run this fix
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ message: 'Access denied. Superadmin only.' });
+    }
+
+    // Find accountants without centerId
+    const accountantsWithoutCenter = await User.find({
+      role: 'accountant',
+      isDeleted: false,
+      $or: [
+        { centerId: { $exists: false } },
+        { centerId: null },
+        { centerId: '' }
+      ]
+    });
+
+    if (accountantsWithoutCenter.length === 0) {
+      return res.json({ 
+        message: 'All accountants have proper center assignments.',
+        fixedCount: 0 
+      });
+    }
+
+    // Get all centers
+    const centers = await Center.find({ isDeleted: false });
+    if (centers.length === 0) {
+      return res.status(400).json({ 
+        message: 'No centers found. Cannot assign accountants to centers.' 
+      });
+    }
+
+    // Assign accountants to the first available center (or distribute them)
+    const fixedAccountants = [];
+    for (let i = 0; i < accountantsWithoutCenter.length; i++) {
+      const accountant = accountantsWithoutCenter[i];
+      const centerIndex = i % centers.length; // Distribute across centers
+      const assignedCenter = centers[centerIndex];
+      
+      accountant.centerId = assignedCenter._id;
+      await accountant.save();
+      
+      fixedAccountants.push({
+        accountantId: accountant._id,
+        accountantName: accountant.name,
+        assignedCenterId: assignedCenter._id,
+        assignedCenterName: assignedCenter.name
+      });
+    }
+
+    res.json({
+      message: `Fixed ${fixedAccountants.length} accountants without center assignment.`,
+      fixedCount: fixedAccountants.length,
+      fixedAccountants
+    });
+  } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -732,7 +787,6 @@ export const getFinancialReports = async (req, res) => {
     const centerId = req.user.centerId;
     const { reportType = 'daily', startDate, endDate } = req.query;
 
-    console.log('📈 Generating financial report:', reportType);
 
     const now = new Date();
     let dateFilter = {};
@@ -924,7 +978,6 @@ export const getFinancialReports = async (req, res) => {
       transactions: detailedTransactions
     });
   } catch (error) {
-    console.error('❌ Error generating financial report:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
