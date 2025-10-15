@@ -554,7 +554,9 @@ export const getSuperAdminDoctorLabReports = async (req, res) => {
         sampleCollected: report.status === 'Sample_Collected' || report.status === 'Testing_In_Progress' || report.status === 'Report_Generated' || report.status === 'Report_Sent' || report.status === 'Completed',
         testingCompleted: report.status === 'Testing_Completed' || report.status === 'Report_Generated' || report.status === 'Report_Sent' || report.status === 'Completed',
         additionalFiles: report.additionalFiles || [],
-        centerId: report.centerId
+        centerId: report.centerId,
+        // ✅ NEW: Include billing information for payment status checking
+        billing: report.billing || null
       };
     });
 

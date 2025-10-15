@@ -53,14 +53,13 @@ function numberToWords(num) {
   return result.trim();
 }
 
-// Generate PDF invoice
+// Generate PDF invoice with professional design matching the image
 export const generateInvoicePDF = async (req, res) => {
   try {
     const { id, billingId } = req.params;
     
     // Use either id or billingId parameter
     const testRequestId = id || billingId;
-    
     
     if (!testRequestId) {
       return res.status(400).json({ message: 'Test request ID is required' });
@@ -81,11 +80,10 @@ export const generateInvoicePDF = async (req, res) => {
       return res.status(400).json({ message: 'No billing information found for this test request' });
     }
     
-    
-    // Create PDF document using full page
+    // Create PDF document with professional layout
     const doc = new PDFDocument({ 
       size: 'A4', 
-      margin: 15,
+      margin: 20,
       info: {
         Title: `Invoice - ${testRequest.billing.invoiceNumber || testRequest._id}`,
         Author: 'Chanre Hospital',
@@ -101,88 +99,95 @@ export const generateInvoicePDF = async (req, res) => {
     // Pipe PDF to response
     doc.pipe(res);
     
-    // Header - Left side: INVOICE with attractive styling
-    doc.fillColor('#1e40af')
-       .fontSize(28)
-       .font('Helvetica-Bold')
-       .text('INVOICE', 15, 15);
-    
-    // Add a decorative line under INVOICE
-    doc.strokeColor('#1e40af')
-       .lineWidth(3)
-       .moveTo(15, 45)
-       .lineTo(120, 45)
-       .stroke();
-    
-    // Header - Right side: Hospital details with attractive styling
+    // ===== HEADER SECTION =====
+    // Hospital Information (Top Left)
     const hospitalName = testRequest.centerId?.name || 'Chanre Hospital';
     const hospitalAddress = testRequest.centerId?.address || 'Rajajinagar, Bengaluru';
-    const hospitalPhone = testRequest.centerId?.phone || '08040810611';
-    const hospitalFax = testRequest.centerId?.fax || '080-42516600';
-    const hospitalWebsite = testRequest.centerId?.website || 'www.chanreallergy.com';
+    const hospitalPhone = testRequest.centerId?.phone || '1234567890';
+    const hospitalEmail = testRequest.centerId?.email || 'chanrehospital@gmail.com';
     
-    // Hospital info box with border
-    doc.rect(320, 10, 265, 85).fill('#f8fafc').stroke('#e2e8f0');
-    
-    doc.fillColor('#1e40af')
-       .fontSize(18)
+    doc.fillColor('#000000')
+       .fontSize(24)
        .font('Helvetica-Bold')
-       .text(hospitalName, 330, 25);
+       .text(hospitalName, 20, 20);
     
-    doc.fillColor('#475569')
-       .fontSize(11)
+    doc.fillColor('#000000')
+       .fontSize(10)
        .font('Helvetica')
-       .text(hospitalAddress, 330, 45)
-       .text(`PH: ${hospitalPhone} | Fax: ${hospitalFax}`, 330, 60)
-       .text(`Website: ${hospitalWebsite}`, 330, 75);
+       .text(hospitalAddress, 20, 45)
+       .text(`Phone: ${hospitalPhone}`, 20, 58)
+       .text(`Email: ${hospitalEmail}`, 20, 71);
     
-    // Main title - INPATIENT BILL with attractive styling
-    doc.fillColor('#dc2626')
+    // Bill Title & Details (Top Right)
+    doc.fillColor('#1e40af')
        .fontSize(20)
        .font('Helvetica-Bold')
-       .text('INPATIENT BILL', 330, 100, { align: 'center', width: 265 });
+       .text('OUTPATIENT BILL', 400, 20, { align: 'right', width: 170 });
     
-    doc.fillColor('#059669')
-       .fontSize(16)
-       .font('Helvetica-Bold')
-       .text('LAB REPORTS INVOICE', 330, 120, { align: 'center', width: 265 });
+    const billNumber = testRequest.billing.invoiceNumber || `BILL-${Date.now()}`;
+    const billDate = testRequest.billing.generatedAt ? 
+      new Date(testRequest.billing.generatedAt).toLocaleDateString('en-GB') : 
+      new Date().toLocaleDateString('en-GB');
+    const billTime = testRequest.billing.generatedAt ? 
+      new Date(testRequest.billing.generatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }) : 
+      new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true });
     
-    // Patient and Consultant Information Section with attractive styling
-    const detailsY = 150;
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Bill No: ${billNumber}`, 400, 45, { align: 'right', width: 170 })
+       .text(`Date: ${billDate}, ${billTime}`, 400, 58, { align: 'right', width: 170 });
     
-    // Patient info box with border
-    doc.rect(15, detailsY - 10, 280, 100).fill('#fefefe').stroke('#d1d5db');
-    doc.fillColor('#1e40af')
+    // ===== PATIENT & CONSULTANT INFORMATION =====
+    const infoY = 100;
+    
+    // Patient Information (Left)
+    doc.fillColor('#000000')
        .fontSize(12)
        .font('Helvetica-Bold')
-       .text('PATIENT INFORMATION', 25, detailsY + 5);
+       .text('Patient Information', 20, infoY);
     
-    // Left column - Patient details with better styling
-    doc.fillColor('#374151')
-       .fontSize(11)
+    const patientName = testRequest.patientName || testRequest.patientId?.name || 'N/A';
+    const patientAge = testRequest.patientId?.age || 'N/A';
+    const patientGender = testRequest.patientId?.gender || 'N/A';
+    const patientPhone = testRequest.patientId?.phone || 'N/A';
+    const fileNumber = testRequest._id.toString().slice(-7);
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
        .font('Helvetica')
-       .text(`Name: ${testRequest.patientName || testRequest.patientId?.name || 'N/A'}`, 25, detailsY + 20)
-       .text(`Date: ${testRequest.billing.generatedAt ? new Date(testRequest.billing.generatedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}`, 25, detailsY + 35)
-       .text(`Bill No: ${testRequest.billing.invoiceNumber || 'N/A'}`, 25, detailsY + 50)
-       .text(`File No: ${testRequest._id}`, 25, detailsY + 65)
-       .text(`Sex: ${testRequest.patientId?.gender || 'N/A'}`, 25, detailsY + 80);
+       .text(`Name: ${patientName}`, 20, infoY + 20)
+       .text(`Age: ${patientAge} | Gender: ${patientGender}`, 20, infoY + 35)
+       .text(`Contact: ${patientPhone}`, 20, infoY + 50)
+       .text(`File No: ${fileNumber}`, 20, infoY + 65);
     
-    // Consultant info box with border
-    doc.rect(310, detailsY - 10, 275, 100).fill('#fefefe').stroke('#d1d5db');
-    doc.fillColor('#1e40af')
+    // Consultant Information (Right)
+    doc.fillColor('#000000')
        .fontSize(12)
        .font('Helvetica-Bold')
-       .text('CONSULTANT INFORMATION', 320, detailsY + 5);
+       .text('Consultant Information', 300, infoY);
     
-    // Right column - Consultant details with better styling
-    doc.fillColor('#374151')
-       .fontSize(11)
+    const doctorName = testRequest.doctorName || testRequest.doctorId?.name || 'Dr. Doctor';
+    const department = testRequest.doctorId?.specializations?.[0] || 'General Medicine';
+    const userId = testRequest.doctorId?._id?.toString().slice(-7) || '09485dd';
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
        .font('Helvetica')
-       .text(`Consultant Name: ${testRequest.doctorName || testRequest.doctorId?.name || 'N/A'}`, 320, detailsY + 20)
-       .text(`Department: ${testRequest.doctorId?.specializations?.[0] || 'MD (Physiology)'}`, 320, detailsY + 35)
-       .text(`Ref. Doctor:`, 320, detailsY + 50);
+       .text(`Doctor: ${doctorName}`, 300, infoY + 20)
+       .text(`Department: ${department}`, 300, infoY + 35)
+       .text(`User ID: ${userId}`, 300, infoY + 50)
+       .text(`Ref. Doctor: N/A`, 300, infoY + 65);
     
-    // Calculate totals first
+    // ===== CURRENT SERVICES BILLED SECTION =====
+    const servicesY = infoY + 100;
+    
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Current Services Billed', 20, servicesY);
+    
+    // Calculate totals
     const subtotal = testRequest.billing.items ? 
       testRequest.billing.items.reduce((sum, item) => sum + ((item.quantity || 1) * (item.unitPrice || 0)), 0) :
       (testRequest.billing.amount || 0);
@@ -193,30 +198,27 @@ export const generateInvoicePDF = async (req, res) => {
     const paidAmount = testRequest.billing.paidAmount || 0;
     const remainingAmount = grandTotal - paidAmount;
     
-    // Service Items Table with attractive styling
-    const serviceTableY = 270;
+    // Services Table Header
+    const tableY = servicesY + 20;
+    doc.rect(20, tableY, 550, 25).fill('#f3f4f6').stroke('#000000');
     
-    // Table header with attractive styling
-    doc.rect(15, serviceTableY, 570, 30).fill('#1e40af');
-    doc.fillColor('#ffffff')
+    doc.fillColor('#000000')
        .fontSize(10)
        .font('Helvetica-Bold')
-       .text('S.NO', 25, serviceTableY + 10)
-       .text('SERVICE NAME', 60, serviceTableY + 10)
-       .text('QTY', 240, serviceTableY + 10)
-       .text('CHARGES', 300, serviceTableY + 10)
-       .text('PAID', 380, serviceTableY + 10)
-       .text('BALANCE', 450, serviceTableY + 10)
-       .text('STATUS', 520, serviceTableY + 10);
+       .text('S.NO', 30, tableY + 8)
+       .text('SERVICE NAME', 70, tableY + 8)
+       .text('QTY', 200, tableY + 8)
+       .text('CHARGES', 250, tableY + 8)
+       .text('PAID', 350, tableY + 8)
+       .text('BAL', 420, tableY + 8)
+       .text('STATUS', 480, tableY + 8);
     
-    let currentY = serviceTableY + 30;
+    let currentRowY = tableY + 25;
     
-    // Add billing items - Fixed to show proportional payments
+    // Add service items
     if (testRequest.billing.items && testRequest.billing.items.length > 0) {
       testRequest.billing.items.forEach((item, index) => {
         const itemTotal = (item.quantity || 1) * (item.unitPrice || 0);
-        
-        // Calculate proportional payment for each item
         const itemPaymentRatio = itemTotal / grandTotal;
         const itemPaidAmount = paidAmount * itemPaymentRatio;
         const itemBalance = itemTotal - itemPaidAmount;
@@ -224,64 +226,78 @@ export const generateInvoicePDF = async (req, res) => {
         const status = testRequest.billing.status === 'paid' || testRequest.billing.status === 'payment_received' ? 'Paid' : 
                       testRequest.billing.status === 'refunded' ? 'Refunded' : 'Pending';
         
-        // Alternate row colors for better readability
-        const rowColor = index % 2 === 0 ? '#f8fafc' : '#ffffff';
-        doc.rect(15, currentY - 5, 570, 25).fill(rowColor);
+        // Service row
+        doc.rect(20, currentRowY, 550, 20).stroke('#000000');
         
-        doc.fillColor('#374151')
+        doc.fillColor('#000000')
            .fontSize(9)
            .font('Helvetica')
-           .text((index + 1).toString(), 25, currentY + 5)
-           .text(item.name || 'Lab Test', 60, currentY + 5, { width: 170, ellipsis: true })
-           .text((item.quantity || 1).toString(), 240, currentY + 5)
-           .text(`₹${(item.unitPrice || 0).toFixed(2)}`, 300, currentY + 5)
-           .text(`₹${itemPaidAmount.toFixed(2)}`, 380, currentY + 5)
-           .text(`₹${itemBalance.toFixed(2)}`, 450, currentY + 5);
+           .text((index + 1).toString(), 30, currentRowY + 6)
+           .text(item.name || 'Lab Test', 70, currentRowY + 6, { width: 120, ellipsis: true })
+           .text((item.quantity || 1).toString(), 200, currentRowY + 6)
+           .text(`₹${itemTotal.toFixed(2)}`, 250, currentRowY + 6)
+           .text(`₹${itemPaidAmount.toFixed(2)}`, 350, currentRowY + 6)
+           .text(`₹${itemBalance.toFixed(2)}`, 420, currentRowY + 6);
         
         // Status with color coding
         if (status === 'Paid') {
-          doc.fillColor('#059669').text(status, 520, currentY + 5);
+          doc.fillColor('#059669').text(status, 480, currentRowY + 6);
         } else if (status === 'Pending') {
-          doc.fillColor('#d97706').text(status, 520, currentY + 5);
+          doc.fillColor('#d97706').text(status, 480, currentRowY + 6);
         } else {
-          doc.fillColor('#dc2626').text(status, 520, currentY + 5);
+          doc.fillColor('#dc2626').text(status, 480, currentRowY + 6);
         }
-        currentY += 20;
+        
+        currentRowY += 20;
       });
     } else {
-      // Fallback for single test
+      // Single service
       const totalAmount = testRequest.billing.amount || 0;
-      const paidAmount = testRequest.billing.paidAmount || 0;
       const balance = totalAmount - paidAmount;
       const status = testRequest.billing.status === 'paid' || testRequest.billing.status === 'payment_received' ? 'Paid' : 
                     testRequest.billing.status === 'refunded' ? 'Refunded' : 'Pending';
       
-      // Single test row with styling
-      doc.rect(15, currentY - 5, 570, 25).fill('#f8fafc');
+      doc.rect(20, currentRowY, 550, 20).stroke('#000000');
       
-      doc.fillColor('#374151')
+      doc.fillColor('#000000')
          .fontSize(9)
          .font('Helvetica')
-         .text('1', 25, currentY + 5)
-         .text(testRequest.testType || 'Lab Test', 60, currentY + 5, { width: 170, ellipsis: true })
-         .text('1', 240, currentY + 5)
-         .text(`₹${totalAmount.toFixed(2)}`, 300, currentY + 5)
-         .text(`₹${paidAmount.toFixed(2)}`, 380, currentY + 5)
-         .text(`₹${balance.toFixed(2)}`, 450, currentY + 5);
+         .text('1', 30, currentRowY + 6)
+         .text(testRequest.testType || 'Lab Test', 70, currentRowY + 6, { width: 120, ellipsis: true })
+         .text('1', 200, currentRowY + 6)
+         .text(`₹${totalAmount.toFixed(2)}`, 250, currentRowY + 6)
+         .text(`₹${paidAmount.toFixed(2)}`, 350, currentRowY + 6)
+         .text(`₹${balance.toFixed(2)}`, 420, currentRowY + 6);
       
-      // Status with color coding
       if (status === 'Paid') {
-        doc.fillColor('#059669').text(status, 520, currentY + 5);
+        doc.fillColor('#059669').text(status, 480, currentRowY + 6);
       } else if (status === 'Pending') {
-        doc.fillColor('#d97706').text(status, 520, currentY + 5);
+        doc.fillColor('#d97706').text(status, 480, currentRowY + 6);
       } else {
-        doc.fillColor('#dc2626').text(status, 520, currentY + 5);
+        doc.fillColor('#dc2626').text(status, 480, currentRowY + 6);
       }
-      currentY += 20;
+      
+      currentRowY += 20;
     }
     
-    // Bill Status and Payment Information (Left Side)
-    const statusY = currentY + 20;
+    // ===== BILL SUMMARY SECTIONS =====
+    const summaryY = currentRowY + 20;
+    
+    // Current Bill Summary (Left)
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Current Bill Summary', 20, summaryY);
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Total Amount: ₹${grandTotal.toFixed(2)}`, 20, summaryY + 20)
+       .text(`Discount(-): ₹${discounts.toFixed(2)}`, 20, summaryY + 35)
+       .text(`Tax Amount: ₹${taxes.toFixed(2)}`, 20, summaryY + 50)
+       .text(`Grand Total: ₹${grandTotal.toFixed(2)}`, 20, summaryY + 65)
+       .font('Helvetica-Bold')
+       .text(`Amount Paid: ₹${paidAmount.toFixed(2)}`, 20, summaryY + 80);
     
     // Determine bill status
     let billStatus = 'PENDING';
@@ -289,233 +305,880 @@ export const generateInvoicePDF = async (req, res) => {
       billStatus = 'PAID';
     } else if (testRequest.billing.status === 'refunded') {
       billStatus = 'REFUNDED';
+    } else if (testRequest.billing.status === 'cancelled') {
+      billStatus = 'CANCELLED';
     } else if (paidAmount > 0 && paidAmount < grandTotal) {
       billStatus = 'PARTIAL';
     }
     
-    // Bill Status
+    // Status with color coding
+    if (billStatus === 'PAID') {
+      doc.fillColor('#059669').text(`Status: ${billStatus}`, 20, summaryY + 95);
+    } else if (billStatus === 'CANCELLED') {
+      doc.fillColor('#dc2626').text(`Status: ${billStatus}`, 20, summaryY + 95);
+    } else {
+      doc.fillColor('#d97706').text(`Status: ${billStatus}`, 20, summaryY + 95);
+    }
+    
+    // Payment Summary (Right)
     doc.fillColor('#000000')
        .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Payment Summary', 300, summaryY);
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
        .font('Helvetica')
-       .text(`Bill Status: `, 15, statusY)
+       .text(`Total Bill Amount: ₹${grandTotal.toFixed(2)}`, 300, summaryY + 20)
+       .text(`Bill Status: ${billStatus}`, 300, summaryY + 35)
+       .text(`Amount Paid: ₹${paidAmount.toFixed(2)}`, 300, summaryY + 50);
+    
+    // Generation Details
+    doc.fillColor('#000000')
+       .fontSize(12)
        .font('Helvetica-Bold')
-       .text(billStatus, 15 + 80, statusY);
+       .text('Generation Details', 300, summaryY + 80);
     
-    // Payment Details with attractive styling
-    if (paidAmount > 0) {
-      doc.fillColor('#374151')
-         .fontSize(11)
-         .font('Helvetica')
-         .text(`Amount Paid: ₹${paidAmount.toFixed(2)}`, 15, statusY + 20)
-         .text(`Amount Paid: (Rs.) ${numberToWords(paidAmount)} Only`, 15, statusY + 35);
-      
-      if (billStatus === 'PARTIAL') {
-        doc.fillColor('#d97706')
-           .fontSize(11)
-           .font('Helvetica-Bold')
-           .text(`Remaining Amount: ₹${remainingAmount.toFixed(2)}`, 15, statusY + 50)
-           .text(`Percentage Paid: ${Math.round((paidAmount / grandTotal) * 100)}%`, 15, statusY + 65);
-      }
-    } else {
-      doc.fillColor('#dc2626')
-         .fontSize(11)
-         .font('Helvetica-Bold')
-         .text(`Amount Due: ₹${grandTotal.toFixed(2)}`, 15, statusY + 20);
-    }
+    const generatedBy = testRequest.centerId?.name || 'Receptionist 01';
+    const generatedDate = new Date().toLocaleDateString('en-GB');
+    const generatedTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
     
-    // Summary of Charges with attractive styling
-    const summaryY = statusY;
-    const summaryX = 400;
-    
-    // Summary box with border
-    doc.rect(summaryX - 10, summaryY - 10, 195, 120).fill('#fefefe').stroke('#d1d5db');
-    
-    doc.fillColor('#1e40af')
-       .fontSize(13)
-       .font('Helvetica-Bold')
-       .text('SUMMARY OF CHARGES', summaryX, summaryY + 5);
-    
-    doc.fillColor('#374151')
-       .fontSize(11)
+    doc.fillColor('#000000')
+       .fontSize(10)
        .font('Helvetica')
-       .text(`Total Amount: ₹${grandTotal.toFixed(2)}`, summaryX, summaryY + 25)
-       .text(`Discount(-): ₹${discounts.toFixed(2)}`, summaryX, summaryY + 40)
-       .text(`Tax Amount: ₹${taxes.toFixed(2)}`, summaryX, summaryY + 55)
-       .text(`Grand Total: ₹${grandTotal.toFixed(2)}`, summaryX, summaryY + 70)
-       .text(`Amount Paid: ₹${paidAmount.toFixed(2)}`, summaryX, summaryY + 85);
+       .text(`Generated By: ${generatedBy}`, 300, summaryY + 100)
+       .text(`Date: ${generatedDate}`, 300, summaryY + 115)
+       .text(`Time: ${generatedTime}`, 300, summaryY + 130);
     
-    // Status with color coding and background
-    let statusBgColor = '#f3f4f6';
-    let statusTextColor = '#374151';
+    // Paid Amount in Words
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Paid Amount (in words): (Rs.) ${numberToWords(paidAmount)} Only`, 20, summaryY + 150);
     
-    if (billStatus === 'PAID') {
-      statusBgColor = '#d1fae5';
-      statusTextColor = '#059669';
-    } else if (billStatus === 'PARTIAL') {
-      statusBgColor = '#fef3c7';
-      statusTextColor = '#d97706';
-    } else if (billStatus === 'REFUNDED') {
-      statusBgColor = '#f3e8ff';
-      statusTextColor = '#7c3aed';
-    } else {
-      statusBgColor = '#fee2e2';
-      statusTextColor = '#dc2626';
-    }
+    // ===== PAYMENT HISTORY SECTION =====
+    const paymentHistoryY = summaryY + 180;
     
-    doc.rect(summaryX, summaryY + 95, 175, 15).fill(statusBgColor);
-    doc.fillColor(statusTextColor)
-       .fontSize(11)
+    doc.fillColor('#000000')
+       .fontSize(12)
        .font('Helvetica-Bold')
-       .text(`Status: ${billStatus}`, summaryX + 5, summaryY + 105);
+       .text('Payment History', 20, paymentHistoryY);
     
-    // Payment History Table with attractive styling
-    const paymentHistoryY = statusY + 140;
-    doc.fillColor('#1e40af')
-       .fontSize(14)
+    // Payment History Table Header
+    const paymentTableY = paymentHistoryY + 20;
+    doc.rect(20, paymentTableY, 550, 25).fill('#f3f4f6').stroke('#000000');
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
        .font('Helvetica-Bold')
-       .text('PAYMENT HISTORY', 15, paymentHistoryY);
+       .text('DATE', 30, paymentTableY + 8)
+       .text('SERVICE', 80, paymentTableY + 8)
+       .text('AMOUNT', 180, paymentTableY + 8)
+       .text('PAID', 250, paymentTableY + 8)
+       .text('REFUNDED', 320, paymentTableY + 8)
+       .text('BALANCE', 400, paymentTableY + 8)
+       .text('STATUS', 480, paymentTableY + 8);
     
-    // Payment history table header with attractive styling
-    doc.rect(15, paymentHistoryY + 10, 570, 30).fill('#059669');
-    doc.fillColor('#ffffff')
-       .fontSize(9)
-       .font('Helvetica-Bold')
-       .text('DATE', 25, paymentHistoryY + 20)
-       .text('SERVICE', 90, paymentHistoryY + 20)
-       .text('AMOUNT', 180, paymentHistoryY + 20)
-       .text('PAID', 250, paymentHistoryY + 20)
-       .text('METHOD', 320, paymentHistoryY + 20)
-       .text('REFUND', 390, paymentHistoryY + 20)
-       .text('BALANCE', 460, paymentHistoryY + 20)
-       .text('STATUS', 530, paymentHistoryY + 20);
+    let paymentRowY = paymentTableY + 25;
     
-    let paymentRowY = paymentHistoryY + 35;
-    
-    // Add payment history rows - Fixed logic to match the image
+    // Add payment history rows
     if (testRequest.billing.items && testRequest.billing.items.length > 0) {
       testRequest.billing.items.forEach((item, index) => {
         const itemTotal = (item.quantity || 1) * (item.unitPrice || 0);
-        const paidAmount = testRequest.billing.paidAmount || 0;
-        const grandTotal = subtotal + taxes - discounts;
-        
-        // Calculate proportional payment for each item
         const itemPaymentRatio = itemTotal / grandTotal;
         const itemPaidAmount = paidAmount * itemPaymentRatio;
         const itemBalance = itemTotal - itemPaidAmount;
         
         const status = testRequest.billing.status === 'paid' || testRequest.billing.status === 'payment_received' ? 'Paid' : 
                       testRequest.billing.status === 'refunded' ? 'Refunded' : 'Pending';
-        const paymentDate = testRequest.billing.paidAt ? new Date(testRequest.billing.paidAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
-        const paymentMethod = testRequest.billing.paymentMethod || 'Cash';
+        const paymentDate = testRequest.billing.paidAt ? 
+          new Date(testRequest.billing.paidAt).toLocaleDateString('en-GB') : 
+          new Date().toLocaleDateString('en-GB');
         
-        // Alternate row colors for payment history
-        const paymentRowColor = index % 2 === 0 ? '#f8fafc' : '#ffffff';
-        doc.rect(15, paymentRowY - 5, 570, 25).fill(paymentRowColor);
+        // Payment history row
+        doc.rect(20, paymentRowY, 550, 20).stroke('#000000');
         
-        doc.fillColor('#374151')
-           .fontSize(8)
+        doc.fillColor('#000000')
+           .fontSize(9)
            .font('Helvetica')
-           .text(paymentDate, 25, paymentRowY + 5)
-           .text(item.name || 'Lab Test', 90, paymentRowY + 5, { width: 80, ellipsis: true })
-           .text(`₹${itemTotal.toFixed(2)}`, 180, paymentRowY + 5)
-           .text(`₹${itemPaidAmount.toFixed(2)}`, 250, paymentRowY + 5)
-           .text(paymentMethod, 320, paymentRowY + 5)
-           .text('₹0.00', 390, paymentRowY + 5)
-           .text(`₹${itemBalance.toFixed(2)}`, 460, paymentRowY + 5);
+           .text(paymentDate, 30, paymentRowY + 6)
+           .text(item.name || 'Lab Test', 80, paymentRowY + 6, { width: 90, ellipsis: true })
+           .text(`₹${itemTotal.toFixed(2)}`, 180, paymentRowY + 6)
+           .text(`₹${itemPaidAmount.toFixed(2)}`, 250, paymentRowY + 6)
+           .text('₹0.00', 320, paymentRowY + 6)
+           .text(`₹${itemBalance.toFixed(2)}`, 400, paymentRowY + 6);
         
         // Status with color coding
         if (status === 'Paid') {
-          doc.fillColor('#059669').text(status, 530, paymentRowY + 5);
+          doc.fillColor('#059669').text(status, 480, paymentRowY + 6);
         } else if (status === 'Pending') {
-          doc.fillColor('#d97706').text(status, 530, paymentRowY + 5);
+          doc.fillColor('#d97706').text(status, 480, paymentRowY + 6);
         } else {
-          doc.fillColor('#dc2626').text(status, 530, paymentRowY + 5);
+          doc.fillColor('#dc2626').text(status, 480, paymentRowY + 6);
         }
+        
         paymentRowY += 20;
       });
     } else {
-      // Single test payment history
+      // Single service payment history
       const totalAmount = testRequest.billing.amount || 0;
-      const paidAmount = testRequest.billing.paidAmount || 0;
       const balance = totalAmount - paidAmount;
       const status = testRequest.billing.status === 'paid' || testRequest.billing.status === 'payment_received' ? 'Paid' : 
                     testRequest.billing.status === 'refunded' ? 'Refunded' : 'Pending';
-      const paymentDate = testRequest.billing.paidAt ? new Date(testRequest.billing.paidAt).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
-      const paymentMethod = testRequest.billing.paymentMethod || 'Cash';
+      const paymentDate = testRequest.billing.paidAt ? 
+        new Date(testRequest.billing.paidAt).toLocaleDateString('en-GB') : 
+        new Date().toLocaleDateString('en-GB');
       
-      // Single test payment history row with styling
-      doc.rect(15, paymentRowY - 5, 570, 25).fill('#f8fafc');
+      doc.rect(20, paymentRowY, 550, 20).stroke('#000000');
       
-      doc.fillColor('#374151')
-         .fontSize(8)
+      doc.fillColor('#000000')
+         .fontSize(9)
          .font('Helvetica')
-         .text(paymentDate, 25, paymentRowY + 5)
-         .text(testRequest.testType || 'Lab Test', 90, paymentRowY + 5, { width: 80, ellipsis: true })
-         .text(`₹${totalAmount.toFixed(2)}`, 180, paymentRowY + 5)
-         .text(`₹${paidAmount.toFixed(2)}`, 250, paymentRowY + 5)
-         .text(paymentMethod, 320, paymentRowY + 5)
-         .text('₹0.00', 390, paymentRowY + 5)
-         .text(`₹${balance.toFixed(2)}`, 460, paymentRowY + 5);
+         .text(paymentDate, 30, paymentRowY + 6)
+         .text(testRequest.testType || 'Lab Test', 80, paymentRowY + 6, { width: 90, ellipsis: true })
+         .text(`₹${totalAmount.toFixed(2)}`, 180, paymentRowY + 6)
+         .text(`₹${paidAmount.toFixed(2)}`, 250, paymentRowY + 6)
+         .text('₹0.00', 320, paymentRowY + 6)
+         .text(`₹${balance.toFixed(2)}`, 400, paymentRowY + 6);
       
-      // Status with color coding
       if (status === 'Paid') {
-        doc.fillColor('#059669').text(status, 530, paymentRowY + 5);
+        doc.fillColor('#059669').text(status, 480, paymentRowY + 6);
       } else if (status === 'Pending') {
-        doc.fillColor('#d97706').text(status, 530, paymentRowY + 5);
+        doc.fillColor('#d97706').text(status, 480, paymentRowY + 6);
       } else {
-        doc.fillColor('#dc2626').text(status, 530, paymentRowY + 5);
+        doc.fillColor('#dc2626').text(status, 480, paymentRowY + 6);
       }
+      
       paymentRowY += 20;
     }
     
-    // Footer Section
+    // ===== FOOTER SECTION =====
     const footerY = paymentRowY + 30;
     
-    // Generated By and Date/Time section (Left side)
-    doc.fillColor('#000000')
-       .fontSize(10)
-       .font('Helvetica')
-       .text(`Generated By: ${testRequest.centerId?.name || 'Test Receptionist'}`, 15, footerY)
-       .text(`Date: ${new Date().toLocaleDateString('en-GB')}`, 15, footerY + 15)
-       .text(`Time: ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true })}`, 15, footerY + 30);
-    
-    // Invoice Terms section (Right side)
-    const termsY = footerY;
-    doc.rect(400, termsY, 185, 80).stroke('#000000');
+    // Invoice Terms (Bottom Left)
     doc.fillColor('#000000')
        .fontSize(12)
        .font('Helvetica-Bold')
-       .text('Invoice Terms', 410, termsY + 10);
+       .text('Invoice Terms', 20, footerY);
     
-    doc.fillColor('#000000')
-       .fontSize(9)
-       .font('Helvetica')
-       .text('• Original invoice document', 410, termsY + 25)
-       .text('• Payment due upon receipt', 410, termsY + 40)
-       .text('• Keep for your records', 410, termsY + 55)
-       .text('• No refunds after 7 days', 410, termsY + 70);
-    
-    // Signature section - Fixed overlapping and dynamic hospital name
     doc.fillColor('#000000')
        .fontSize(10)
        .font('Helvetica')
-       .text('Signature:', 410, termsY + 90)
-       .text(`For ${hospitalName}`, 410, termsY + 105);
+       .text('• Original invoice document', 20, footerY + 20)
+       .text('• Payment due upon receipt', 20, footerY + 35)
+       .text('• Keep for your records', 20, footerY + 50)
+       .text('• No refunds after 7 days', 20, footerY + 65);
     
-    // Footer information - Home Sample Collection
-    const homeCollectionY = termsY + 120;
+    // Signature Area (Bottom Right)
     doc.fillColor('#000000')
        .fontSize(10)
        .font('Helvetica')
-       .text('"For Home Sample Collection"', 15, homeCollectionY, { align: 'center', width: 570 })
-       .text('Miss Call: 080-42516666|Mobile: 9686197153', 15, homeCollectionY + 15, { align: 'center', width: 570 });
+       .text('For Chanre Hospital', 400, footerY + 50, { align: 'right', width: 170 })
+       .text('Authorized Signature', 400, footerY + 70, { align: 'right', width: 170 });
     
     // Finalize PDF
     doc.end();
     
-    
   } catch (error) {
     res.status(500).json({ message: 'Error generating invoice PDF', error: error.message });
+  }
+};
+
+// Generate consultation fee invoice with professional design
+export const generateConsultationInvoicePDF = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    
+    if (!patientId) {
+      return res.status(400).json({ message: 'Patient ID is required' });
+    }
+    
+    // Find the patient with billing information
+    const Patient = (await import('../models/Patient.js')).default;
+    const patient = await Patient.findById(patientId)
+      .populate('centerId', 'name code address phone email')
+      .populate('currentDoctor', 'name specializations')
+      .populate('assignedDoctor', 'name specializations');
+    
+    if (!patient) {
+      return res.status(404).json({ message: 'Patient not found' });
+    }
+    
+    if (!patient.billing || patient.billing.length === 0) {
+      return res.status(400).json({ message: 'No billing information found for this patient' });
+    }
+    
+    // Create PDF document with professional layout
+    const doc = new PDFDocument({ 
+      size: 'A4', 
+      margin: 20,
+      info: {
+        Title: `Consultation Invoice - ${patient.name}`,
+        Author: 'Chanre Hospital',
+        Subject: `Consultation Invoice for ${patient.name}`,
+        Creator: 'Hospital Management System'
+      }
+    });
+    
+    // Set response headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=consultation-invoice-${patient._id}.pdf`);
+    
+    // Pipe PDF to response
+    doc.pipe(res);
+    
+    // ===== HEADER SECTION =====
+    // Hospital Information (Top Left)
+    const hospitalName = patient.centerId?.name || 'Chanre Hospital';
+    const hospitalAddress = patient.centerId?.address || 'Rajajinagar, Bengaluru';
+    const hospitalPhone = patient.centerId?.phone || '1234567890';
+    const hospitalEmail = patient.centerId?.email || 'chanrehospital@gmail.com';
+    
+    doc.fillColor('#000000')
+       .fontSize(24)
+       .font('Helvetica-Bold')
+       .text(hospitalName, 20, 20);
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(hospitalAddress, 20, 45)
+       .text(`Phone: ${hospitalPhone}`, 20, 58)
+       .text(`Email: ${hospitalEmail}`, 20, 71);
+    
+    // Bill Title & Details (Top Right)
+    doc.fillColor('#1e40af')
+       .fontSize(20)
+       .font('Helvetica-Bold')
+       .text('OUTPATIENT BILL', 400, 20, { align: 'right', width: 170 });
+    
+    const billNumber = `CONSULT-${Date.now()}`;
+    const billDate = new Date().toLocaleDateString('en-GB');
+    const billTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true });
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Bill No: ${billNumber}`, 400, 45, { align: 'right', width: 170 })
+       .text(`Date: ${billDate}, ${billTime}`, 400, 58, { align: 'right', width: 170 });
+    
+    // ===== PATIENT & CONSULTANT INFORMATION =====
+    const infoY = 100;
+    
+    // Patient Information (Left)
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Patient Information', 20, infoY);
+    
+    const patientName = patient.name || 'N/A';
+    const patientAge = patient.age || 'N/A';
+    const patientGender = patient.gender || 'N/A';
+    const patientPhone = patient.phone || 'N/A';
+    const fileNumber = patient.uhId || patient._id.toString().slice(-7);
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Name: ${patientName}`, 20, infoY + 20)
+       .text(`Age: ${patientAge} | Gender: ${patientGender}`, 20, infoY + 35)
+       .text(`Contact: ${patientPhone}`, 20, infoY + 50)
+       .text(`File No: ${fileNumber}`, 20, infoY + 65);
+    
+    // Consultant Information (Right)
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Consultant Information', 300, infoY);
+    
+    const doctorName = patient.currentDoctor?.name || patient.assignedDoctor?.name || 'Dr. Doctor';
+    const department = patient.currentDoctor?.specializations?.[0] || patient.assignedDoctor?.specializations?.[0] || 'General Medicine';
+    const userId = patient.currentDoctor?._id?.toString().slice(-7) || patient.assignedDoctor?._id?.toString().slice(-7) || '09485dd';
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Doctor: ${doctorName}`, 300, infoY + 20)
+       .text(`Department: ${department}`, 300, infoY + 35)
+       .text(`User ID: ${userId}`, 300, infoY + 50)
+       .text(`Ref. Doctor: N/A`, 300, infoY + 65);
+    
+    // ===== CURRENT SERVICES BILLED SECTION =====
+    const servicesY = infoY + 100;
+    
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Current Services Billed', 20, servicesY);
+    
+    // Calculate totals from billing records
+    let grandTotal = 0;
+    let totalPaid = 0;
+    
+    patient.billing.forEach(bill => {
+      grandTotal += bill.amount || 0;
+      if (bill.status === 'paid' || bill.status === 'payment_received') {
+        totalPaid += bill.amount || 0;
+      }
+    });
+    
+    const remainingAmount = grandTotal - totalPaid;
+    
+    // Services Table Header
+    const tableY = servicesY + 20;
+    doc.rect(20, tableY, 550, 25).fill('#f3f4f6').stroke('#000000');
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica-Bold')
+       .text('S.NO', 30, tableY + 8)
+       .text('SERVICE NAME', 70, tableY + 8)
+       .text('QTY', 200, tableY + 8)
+       .text('CHARGES', 250, tableY + 8)
+       .text('PAID', 350, tableY + 8)
+       .text('BAL', 420, tableY + 8)
+       .text('STATUS', 480, tableY + 8);
+    
+    let currentRowY = tableY + 25;
+    
+    // Add billing items
+    patient.billing.forEach((bill, index) => {
+      const amount = bill.amount || 0;
+      const isPaid = bill.status === 'paid' || bill.status === 'payment_received';
+      const paidAmount = isPaid ? amount : 0;
+      const balance = amount - paidAmount;
+      const status = isPaid ? 'Paid' : 'Pending';
+      
+      // Service row
+      doc.rect(20, currentRowY, 550, 20).stroke('#000000');
+      
+      doc.fillColor('#000000')
+         .fontSize(9)
+         .font('Helvetica')
+         .text((index + 1).toString(), 30, currentRowY + 6)
+         .text(bill.description || bill.type || 'Consultation', 70, currentRowY + 6, { width: 120, ellipsis: true })
+         .text('1', 200, currentRowY + 6)
+         .text(`₹${amount.toFixed(2)}`, 250, currentRowY + 6)
+         .text(`₹${paidAmount.toFixed(2)}`, 350, currentRowY + 6)
+         .text(`₹${balance.toFixed(2)}`, 420, currentRowY + 6);
+      
+      // Status with color coding
+      if (status === 'Paid') {
+        doc.fillColor('#059669').text(status, 480, currentRowY + 6);
+      } else {
+        doc.fillColor('#d97706').text(status, 480, currentRowY + 6);
+      }
+      
+      currentRowY += 20;
+    });
+    
+    // ===== BILL SUMMARY SECTIONS =====
+    const summaryY = currentRowY + 20;
+    
+    // Current Bill Summary (Left)
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Current Bill Summary', 20, summaryY);
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Total Amount: ₹${grandTotal.toFixed(2)}`, 20, summaryY + 20)
+       .text(`Discount(-): ₹0.00`, 20, summaryY + 35)
+       .text(`Tax Amount: ₹0.00`, 20, summaryY + 50)
+       .text(`Grand Total: ₹${grandTotal.toFixed(2)}`, 20, summaryY + 65)
+       .font('Helvetica-Bold')
+       .text(`Amount Paid: ₹${totalPaid.toFixed(2)}`, 20, summaryY + 80);
+    
+    // Determine bill status
+    let billStatus = 'PENDING';
+    if (totalPaid >= grandTotal) {
+      billStatus = 'PAID';
+    } else if (totalPaid > 0) {
+      billStatus = 'PARTIAL';
+    }
+    
+    // Status with color coding
+    if (billStatus === 'PAID') {
+      doc.fillColor('#059669').text(`Status: ${billStatus}`, 20, summaryY + 95);
+    } else {
+      doc.fillColor('#d97706').text(`Status: ${billStatus}`, 20, summaryY + 95);
+    }
+    
+    // Payment Summary (Right)
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Payment Summary', 300, summaryY);
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Total Bill Amount: ₹${grandTotal.toFixed(2)}`, 300, summaryY + 20)
+       .text(`Bill Status: ${billStatus}`, 300, summaryY + 35)
+       .text(`Amount Paid: ₹${totalPaid.toFixed(2)}`, 300, summaryY + 50);
+    
+    // Generation Details
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Generation Details', 300, summaryY + 80);
+    
+    const generatedBy = patient.centerId?.name || 'Receptionist 01';
+    const generatedDate = new Date().toLocaleDateString('en-GB');
+    const generatedTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Generated By: ${generatedBy}`, 300, summaryY + 100)
+       .text(`Date: ${generatedDate}`, 300, summaryY + 115)
+       .text(`Time: ${generatedTime}`, 300, summaryY + 130);
+    
+    // Paid Amount in Words
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Paid Amount (in words): (Rs.) ${numberToWords(totalPaid)} Only`, 20, summaryY + 150);
+    
+    // ===== PAYMENT HISTORY SECTION =====
+    const paymentHistoryY = summaryY + 180;
+    
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Payment History', 20, paymentHistoryY);
+    
+    // Payment History Table Header
+    const paymentTableY = paymentHistoryY + 20;
+    doc.rect(20, paymentTableY, 550, 25).fill('#f3f4f6').stroke('#000000');
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica-Bold')
+       .text('DATE', 30, paymentTableY + 8)
+       .text('SERVICE', 80, paymentTableY + 8)
+       .text('AMOUNT', 180, paymentTableY + 8)
+       .text('PAID', 250, paymentTableY + 8)
+       .text('REFUNDED', 320, paymentTableY + 8)
+       .text('BALANCE', 400, paymentTableY + 8)
+       .text('STATUS', 480, paymentTableY + 8);
+    
+    let paymentRowY = paymentTableY + 25;
+    
+    // Add payment history rows
+    patient.billing.forEach((bill, index) => {
+      const amount = bill.amount || 0;
+      const isPaid = bill.status === 'paid' || bill.status === 'payment_received';
+      const paidAmount = isPaid ? amount : 0;
+      const balance = amount - paidAmount;
+      const status = isPaid ? 'Paid' : 'Pending';
+      const paymentDate = bill.paidAt ? 
+        new Date(bill.paidAt).toLocaleDateString('en-GB') : 
+        new Date().toLocaleDateString('en-GB');
+      
+      // Payment history row
+      doc.rect(20, paymentRowY, 550, 20).stroke('#000000');
+      
+      doc.fillColor('#000000')
+         .fontSize(9)
+         .font('Helvetica')
+         .text(paymentDate, 30, paymentRowY + 6)
+         .text(bill.description || bill.type || 'Consultation', 80, paymentRowY + 6, { width: 90, ellipsis: true })
+         .text(`₹${amount.toFixed(2)}`, 180, paymentRowY + 6)
+         .text(`₹${paidAmount.toFixed(2)}`, 250, paymentRowY + 6)
+         .text('₹0.00', 320, paymentRowY + 6)
+         .text(`₹${balance.toFixed(2)}`, 400, paymentRowY + 6);
+      
+      // Status with color coding
+      if (status === 'Paid') {
+        doc.fillColor('#059669').text(status, 480, paymentRowY + 6);
+      } else {
+        doc.fillColor('#d97706').text(status, 480, paymentRowY + 6);
+      }
+      
+      paymentRowY += 20;
+    });
+    
+    // ===== FOOTER SECTION =====
+    const footerY = paymentRowY + 30;
+    
+    // Invoice Terms (Bottom Left)
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Invoice Terms', 20, footerY);
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text('• Original invoice document', 20, footerY + 20)
+       .text('• Payment due upon receipt', 20, footerY + 35)
+       .text('• Keep for your records', 20, footerY + 50)
+       .text('• No refunds after 7 days', 20, footerY + 65);
+    
+    // Signature Area (Bottom Right)
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text('For Chanre Hospital', 400, footerY + 50, { align: 'right', width: 170 })
+       .text('Authorized Signature', 400, footerY + 70, { align: 'right', width: 170 });
+    
+    // Finalize PDF
+    doc.end();
+    
+  } catch (error) {
+    res.status(500).json({ message: 'Error generating consultation invoice PDF', error: error.message });
+  }
+};
+
+// Generate reassignment invoice with professional design
+export const generateReassignmentInvoicePDF = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    
+    if (!patientId) {
+      return res.status(400).json({ message: 'Patient ID is required' });
+    }
+    
+    // Find the patient with reassigned billing information
+    const Patient = (await import('../models/Patient.js')).default;
+    const patient = await Patient.findById(patientId)
+      .populate('centerId', 'name code address phone email')
+      .populate('currentDoctor', 'name specializations')
+      .populate('assignedDoctor', 'name specializations');
+    
+    if (!patient) {
+      return res.status(404).json({ message: 'Patient not found' });
+    }
+    
+    if (!patient.reassignedBilling || patient.reassignedBilling.length === 0) {
+      return res.status(400).json({ message: 'No reassigned billing information found for this patient' });
+    }
+    
+    // Create PDF document with professional layout
+    const doc = new PDFDocument({ 
+      size: 'A4', 
+      margin: 20,
+      info: {
+        Title: `Reassignment Invoice - ${patient.name}`,
+        Author: 'Chanre Hospital',
+        Subject: `Reassignment Invoice for ${patient.name}`,
+        Creator: 'Hospital Management System'
+      }
+    });
+    
+    // Set response headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=reassignment-invoice-${patient._id}.pdf`);
+    
+    // Pipe PDF to response
+    doc.pipe(res);
+    
+    // ===== HEADER SECTION =====
+    // Hospital Information (Top Left)
+    const hospitalName = patient.centerId?.name || 'Chanre Hospital';
+    const hospitalAddress = patient.centerId?.address || 'Rajajinagar, Bengaluru';
+    const hospitalPhone = patient.centerId?.phone || '1234567890';
+    const hospitalEmail = patient.centerId?.email || 'chanrehospital@gmail.com';
+    
+    doc.fillColor('#000000')
+       .fontSize(24)
+       .font('Helvetica-Bold')
+       .text(hospitalName, 20, 20);
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(hospitalAddress, 20, 45)
+       .text(`Phone: ${hospitalPhone}`, 20, 58)
+       .text(`Email: ${hospitalEmail}`, 20, 71);
+    
+    // Bill Title & Details (Top Right)
+    doc.fillColor('#1e40af')
+       .fontSize(20)
+       .font('Helvetica-Bold')
+       .text('OUTPATIENT BILL', 400, 20, { align: 'right', width: 170 });
+    
+    const billNumber = `REASSIGN-${Date.now()}`;
+    const billDate = new Date().toLocaleDateString('en-GB');
+    const billTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true });
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Bill No: ${billNumber}`, 400, 45, { align: 'right', width: 170 })
+       .text(`Date: ${billDate}, ${billTime}`, 400, 58, { align: 'right', width: 170 });
+    
+    // ===== PATIENT & CONSULTANT INFORMATION =====
+    const infoY = 100;
+    
+    // Patient Information (Left)
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Patient Information', 20, infoY);
+    
+    const patientName = patient.name || 'N/A';
+    const patientAge = patient.age || 'N/A';
+    const patientGender = patient.gender || 'N/A';
+    const patientPhone = patient.phone || 'N/A';
+    const fileNumber = patient.uhId || patient._id.toString().slice(-7);
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Name: ${patientName}`, 20, infoY + 20)
+       .text(`Age: ${patientAge} | Gender: ${patientGender}`, 20, infoY + 35)
+       .text(`Contact: ${patientPhone}`, 20, infoY + 50)
+       .text(`File No: ${fileNumber}`, 20, infoY + 65);
+    
+    // Consultant Information (Right)
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Consultant Information', 300, infoY);
+    
+    const doctorName = patient.currentDoctor?.name || patient.assignedDoctor?.name || 'Dr. Doctor';
+    const department = patient.currentDoctor?.specializations?.[0] || patient.assignedDoctor?.specializations?.[0] || 'General Medicine';
+    const userId = patient.currentDoctor?._id?.toString().slice(-7) || patient.assignedDoctor?._id?.toString().slice(-7) || '09485dd';
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Doctor: ${doctorName}`, 300, infoY + 20)
+       .text(`Department: ${department}`, 300, infoY + 35)
+       .text(`User ID: ${userId}`, 300, infoY + 50)
+       .text(`Ref. Doctor: N/A`, 300, infoY + 65);
+    
+    // ===== CURRENT SERVICES BILLED SECTION =====
+    const servicesY = infoY + 100;
+    
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Current Services Billed', 20, servicesY);
+    
+    // Calculate totals from reassigned billing records
+    let grandTotal = 0;
+    let totalPaid = 0;
+    
+    patient.reassignedBilling.forEach(bill => {
+      grandTotal += bill.amount || 0;
+      if (bill.status === 'paid' || bill.status === 'payment_received') {
+        totalPaid += bill.amount || 0;
+      }
+    });
+    
+    const remainingAmount = grandTotal - totalPaid;
+    
+    // Services Table Header
+    const tableY = servicesY + 20;
+    doc.rect(20, tableY, 550, 25).fill('#f3f4f6').stroke('#000000');
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica-Bold')
+       .text('S.NO', 30, tableY + 8)
+       .text('SERVICE NAME', 70, tableY + 8)
+       .text('QTY', 200, tableY + 8)
+       .text('CHARGES', 250, tableY + 8)
+       .text('PAID', 350, tableY + 8)
+       .text('BAL', 420, tableY + 8)
+       .text('STATUS', 480, tableY + 8);
+    
+    let currentRowY = tableY + 25;
+    
+    // Add reassigned billing items
+    patient.reassignedBilling.forEach((bill, index) => {
+      const amount = bill.amount || 0;
+      const isPaid = bill.status === 'paid' || bill.status === 'payment_received';
+      const paidAmount = isPaid ? amount : 0;
+      const balance = amount - paidAmount;
+      const status = isPaid ? 'Paid' : 'Pending';
+      
+      // Service row
+      doc.rect(20, currentRowY, 550, 20).stroke('#000000');
+      
+      doc.fillColor('#000000')
+         .fontSize(9)
+         .font('Helvetica')
+         .text((index + 1).toString(), 30, currentRowY + 6)
+         .text(bill.description || bill.type || 'Reassignment Service', 70, currentRowY + 6, { width: 120, ellipsis: true })
+         .text('1', 200, currentRowY + 6)
+         .text(`₹${amount.toFixed(2)}`, 250, currentRowY + 6)
+         .text(`₹${paidAmount.toFixed(2)}`, 350, currentRowY + 6)
+         .text(`₹${balance.toFixed(2)}`, 420, currentRowY + 6);
+      
+      // Status with color coding
+      if (status === 'Paid') {
+        doc.fillColor('#059669').text(status, 480, currentRowY + 6);
+      } else {
+        doc.fillColor('#d97706').text(status, 480, currentRowY + 6);
+      }
+      
+      currentRowY += 20;
+    });
+    
+    // ===== BILL SUMMARY SECTIONS =====
+    const summaryY = currentRowY + 20;
+    
+    // Current Bill Summary (Left)
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Current Bill Summary', 20, summaryY);
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Total Amount: ₹${grandTotal.toFixed(2)}`, 20, summaryY + 20)
+       .text(`Discount(-): ₹0.00`, 20, summaryY + 35)
+       .text(`Tax Amount: ₹0.00`, 20, summaryY + 50)
+       .text(`Grand Total: ₹${grandTotal.toFixed(2)}`, 20, summaryY + 65)
+       .font('Helvetica-Bold')
+       .text(`Amount Paid: ₹${totalPaid.toFixed(2)}`, 20, summaryY + 80);
+    
+    // Determine bill status
+    let billStatus = 'PENDING';
+    if (totalPaid >= grandTotal) {
+      billStatus = 'PAID';
+    } else if (totalPaid > 0) {
+      billStatus = 'PARTIAL';
+    }
+    
+    // Status with color coding
+    if (billStatus === 'PAID') {
+      doc.fillColor('#059669').text(`Status: ${billStatus}`, 20, summaryY + 95);
+    } else {
+      doc.fillColor('#d97706').text(`Status: ${billStatus}`, 20, summaryY + 95);
+    }
+    
+    // Payment Summary (Right)
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Payment Summary', 300, summaryY);
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Total Bill Amount: ₹${grandTotal.toFixed(2)}`, 300, summaryY + 20)
+       .text(`Bill Status: ${billStatus}`, 300, summaryY + 35)
+       .text(`Amount Paid: ₹${totalPaid.toFixed(2)}`, 300, summaryY + 50);
+    
+    // Generation Details
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Generation Details', 300, summaryY + 80);
+    
+    const generatedBy = patient.centerId?.name || 'Receptionist 01';
+    const generatedDate = new Date().toLocaleDateString('en-GB');
+    const generatedTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Generated By: ${generatedBy}`, 300, summaryY + 100)
+       .text(`Date: ${generatedDate}`, 300, summaryY + 115)
+       .text(`Time: ${generatedTime}`, 300, summaryY + 130);
+    
+    // Paid Amount in Words
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text(`Paid Amount (in words): (Rs.) ${numberToWords(totalPaid)} Only`, 20, summaryY + 150);
+    
+    // ===== PAYMENT HISTORY SECTION =====
+    const paymentHistoryY = summaryY + 180;
+    
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Payment History', 20, paymentHistoryY);
+    
+    // Payment History Table Header
+    const paymentTableY = paymentHistoryY + 20;
+    doc.rect(20, paymentTableY, 550, 25).fill('#f3f4f6').stroke('#000000');
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica-Bold')
+       .text('DATE', 30, paymentTableY + 8)
+       .text('SERVICE', 80, paymentTableY + 8)
+       .text('AMOUNT', 180, paymentTableY + 8)
+       .text('PAID', 250, paymentTableY + 8)
+       .text('REFUNDED', 320, paymentTableY + 8)
+       .text('BALANCE', 400, paymentTableY + 8)
+       .text('STATUS', 480, paymentTableY + 8);
+    
+    let paymentRowY = paymentTableY + 25;
+    
+    // Add payment history rows
+    patient.reassignedBilling.forEach((bill, index) => {
+      const amount = bill.amount || 0;
+      const isPaid = bill.status === 'paid' || bill.status === 'payment_received';
+      const paidAmount = isPaid ? amount : 0;
+      const balance = amount - paidAmount;
+      const status = isPaid ? 'Paid' : 'Pending';
+      const paymentDate = bill.paidAt ? 
+        new Date(bill.paidAt).toLocaleDateString('en-GB') : 
+        new Date().toLocaleDateString('en-GB');
+      
+      // Payment history row
+      doc.rect(20, paymentRowY, 550, 20).stroke('#000000');
+      
+      doc.fillColor('#000000')
+         .fontSize(9)
+         .font('Helvetica')
+         .text(paymentDate, 30, paymentRowY + 6)
+         .text(bill.description || bill.type || 'Reassignment Service', 80, paymentRowY + 6, { width: 90, ellipsis: true })
+         .text(`₹${amount.toFixed(2)}`, 180, paymentRowY + 6)
+         .text(`₹${paidAmount.toFixed(2)}`, 250, paymentRowY + 6)
+         .text('₹0.00', 320, paymentRowY + 6)
+         .text(`₹${balance.toFixed(2)}`, 400, paymentRowY + 6);
+      
+      // Status with color coding
+      if (status === 'Paid') {
+        doc.fillColor('#059669').text(status, 480, paymentRowY + 6);
+      } else {
+        doc.fillColor('#d97706').text(status, 480, paymentRowY + 6);
+      }
+      
+      paymentRowY += 20;
+    });
+    
+    // ===== FOOTER SECTION =====
+    const footerY = paymentRowY + 30;
+    
+    // Invoice Terms (Bottom Left)
+    doc.fillColor('#000000')
+       .fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Invoice Terms', 20, footerY);
+    
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text('• Original invoice document', 20, footerY + 20)
+       .text('• Payment due upon receipt', 20, footerY + 35)
+       .text('• Keep for your records', 20, footerY + 50)
+       .text('• No refunds after 7 days', 20, footerY + 65);
+    
+    // Signature Area (Bottom Right)
+    doc.fillColor('#000000')
+       .fontSize(10)
+       .font('Helvetica')
+       .text('For Chanre Hospital', 400, footerY + 50, { align: 'right', width: 170 })
+       .text('Authorized Signature', 400, footerY + 70, { align: 'right', width: 170 });
+    
+    // Finalize PDF
+    doc.end();
+    
+  } catch (error) {
+    res.status(500).json({ message: 'Error generating reassignment invoice PDF', error: error.message });
   }
 };
 

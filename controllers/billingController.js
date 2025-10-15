@@ -321,10 +321,17 @@ export const markBillPaidForTestRequest = async (req, res) => {
     
     // Set status based on payment amount
     if (newPaidAmount >= totalAmount) {
-      // Fully paid - ready for lab processing
+      // Fully paid - check if tests are already completed
       testRequest.billing.status = 'paid';
-      testRequest.status = 'Billing_Paid';
-      testRequest.workflowStage = 'lab_assignment';
+      
+      // ✅ FIXED: If tests are already completed, set status to Report_Sent to prevent new request creation
+      if (['Testing_Completed', 'Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'].includes(testRequest.status)) {
+        testRequest.status = 'Report_Sent'; // Keep as Report_Sent to prevent new request creation
+        testRequest.workflowStage = 'completed';
+      } else {
+        testRequest.status = 'Billing_Paid'; // Only set to Billing_Paid if tests are not completed
+        testRequest.workflowStage = 'lab_assignment';
+      }
     } else {
       // Partially paid - also ready for lab processing (allow lab to see and work on it)
       testRequest.billing.status = 'partially_paid';
@@ -407,7 +414,7 @@ export const markBillPaidForTestRequest = async (req, res) => {
             remainingAmount: totalAmount - newPaidAmount,
             paymentStatus: newPaidAmount >= totalAmount ? 'fully_paid' : 'partially_paid',
             billingStatus: newPaidAmount >= totalAmount ? 'paid' : 'partially_paid',
-            status: 'Billing_Paid', // Always Billing_Paid for lab visibility
+            status: updated.status, // Use the actual updated status
             patientId: testRequest.patientId,
             patientName: patientName,
             testType: testRequest.testType || 'Unknown Test'
@@ -3052,6 +3059,16 @@ export const updatePaymentStatus = async (req, res) => {
     if (numericPaidAmount >= totalAmount) {
       testRequest.billing.status = 'paid';
       testRequest.billing.paymentStatus = 'completed';
+      
+      // ✅ FIXED: If tests are already completed, set status to Report_Sent to prevent new request creation
+      if (['Testing_Completed', 'Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'].includes(testRequest.status)) {
+        testRequest.status = 'Report_Sent'; // Keep as Report_Sent to prevent new request creation
+        console.log('✅ Payment completed - Test request already completed, keeping Report_Sent status');
+      } else if (testRequest.status === 'Billing_Paid' || testRequest.status === 'Billing_Generated') {
+        // Update to a status that allows report access
+        testRequest.status = 'Billing_Paid';
+        console.log('✅ Payment completed - Updated test request status to Billing_Paid');
+      }
     } else if (numericPaidAmount > 0) {
       testRequest.billing.status = 'partially_paid'; // ✅ Fixed: Use correct enum value
       testRequest.billing.paymentStatus = 'partial';
@@ -3065,6 +3082,15 @@ export const updatePaymentStatus = async (req, res) => {
       testRequest.billing.paymentStatus = paymentStatus;
       if (paymentStatus === 'completed') {
         testRequest.billing.status = 'paid';
+        
+        // ✅ FIXED: If tests are already completed, set status to Report_Sent to prevent new request creation
+        if (['Testing_Completed', 'Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'].includes(testRequest.status)) {
+          testRequest.status = 'Report_Sent'; // Keep as Report_Sent to prevent new request creation
+          console.log('✅ Payment explicitly completed - Test request already completed, keeping Report_Sent status');
+        } else if (testRequest.status === 'Billing_Paid' || testRequest.status === 'Billing_Generated') {
+          testRequest.status = 'Billing_Paid';
+          console.log('✅ Payment explicitly completed - Updated test request status to Billing_Paid');
+        }
       } else if (paymentStatus === 'partial') {
         testRequest.billing.status = 'partially_paid'; // ✅ Fixed: Use correct enum value
       } else {
@@ -3139,7 +3165,20 @@ export const updatePaymentStatus = async (req, res) => {
       paidAmount: updated.billing.paidAmount,
       remainingAmount: updated.billing.amount - updated.billing.paidAmount,
       status: updated.billing.status,
-      paymentStatus: updated.billing.paymentStatus
+      paymentStatus: updated.billing.paymentStatus,
+      testRequestStatus: updated.status
+    });
+    
+    // ✅ NEW: Log report access status after payment update
+    const isPaymentComplete = (updated.billing.amount || 0) - (updated.billing.paidAmount || 0) <= 0;
+    const isTestCompleted = ['Testing_Completed', 'Billing_Paid', 'Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'].includes(updated.status);
+    console.log('🔓 Report access status after payment update:', {
+      testRequestId: updated._id,
+      isPaymentComplete,
+      isTestCompleted,
+      reportAccessible: isTestCompleted || isPaymentComplete,
+      billingStatus: updated.billing.status,
+      testRequestStatus: updated.status
     });
 
     res.status(200).json({

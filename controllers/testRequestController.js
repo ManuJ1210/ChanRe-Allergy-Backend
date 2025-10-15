@@ -376,7 +376,8 @@ export const getTestRequestById = async (req, res) => {
       .populate('assignedLabStaffId', 'staffName phone')
       .populate('sampleCollectorId', 'staffName phone')
       .populate('labTechnicianId', 'staffName phone')
-      .populate('reportGeneratedBy', 'staffName');
+      .populate('reportGeneratedBy', 'staffName')
+      .populate('billing', 'amount paidAmount paymentStatus');
 
     if (!testRequest) {
       return res.status(404).json({ message: 'Test request not found' });
@@ -1544,6 +1545,74 @@ export const checkReportStatus = async (req, res) => {
       return res.status(404).json({ message: 'Test request not found' });
     }
 
+    // ✅ Check for test completion AND full payment (EXCEPT for Lab Staff)
+    if (testRequest.billing) {
+      const billing = testRequest.billing;
+      const totalAmount = billing.amount || 0;
+      const paidAmount = billing.paidAmount || 0;
+      const remainingBalance = totalAmount - paidAmount;
+      
+      // Check if tests are completed
+      const isTestCompleted = ['Testing_Completed', 'Billing_Paid', 'Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'].includes(testRequest.status);
+      
+      // Check if payment is complete
+      const isPaymentComplete = remainingBalance <= 0;
+      
+      // ✅ NEW: Allow Lab Staff to access reports they generate regardless of payment status
+      const isLabStaff = req.user?.role === 'lab_staff' || req.user?.userType === 'lab_staff';
+      
+      // ✅ FIXED: Only block access if tests are not completed AND payment is not complete (unless Lab Staff)
+      // This allows access if either tests are completed OR payment is complete
+      if (!isTestCompleted && (!isPaymentComplete && !isLabStaff)) {
+        const reasons = [];
+        if (!isTestCompleted) reasons.push('Tests not fully completed');
+        if (!isPaymentComplete && !isLabStaff) reasons.push('Payment not fully completed');
+        
+        console.log(`[REPORT ACCESS] Blocked report access for ${req.user?.role}:`, {
+          testRequestId: id,
+          userRole: req.user?.role,
+          userType: req.user?.userType,
+          isLabStaff,
+          testStatus: testRequest.status,
+          isTestCompleted,
+          billingStatus: billing.status,
+          totalAmount,
+          paidAmount,
+          remainingBalance: remainingBalance.toFixed(2),
+          isPaymentComplete,
+          reasons: reasons.join(', ')
+        });
+        
+        return res.status(403).json({ 
+          message: 'Report access is locked. Tests must be completed and payment must be fully settled.',
+          error: 'report_locked',
+          details: {
+            reason: reasons.join(' and '),
+            testStatus: testRequest.status,
+            isTestCompleted,
+            totalAmount,
+            paidAmount,
+            remainingBalance,
+            isPaymentComplete,
+            userRole: req.user?.role,
+            isLabStaff
+          }
+        });
+      }
+      
+      console.log(`[REPORT ACCESS] Allowing report access for ${req.user?.role} - conditions met:`, {
+        testRequestId: id,
+        userRole: req.user?.role,
+        testStatus: testRequest.status,
+        isTestCompleted,
+        totalAmount,
+        paidAmount,
+        remainingBalance: remainingBalance.toFixed(2),
+        isPaymentComplete,
+        isLabStaff
+      });
+    }
+
     // Check if test request is eligible for report download
     const validStatuses = ['Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'];
     const isEligible = validStatuses.includes(testRequest.status);
@@ -1628,6 +1697,74 @@ export const downloadTestReport = async (req, res) => {
       reportFilePath: testRequest.reportFilePath,
       reportGeneratedDate: testRequest.reportGeneratedDate
     });
+
+    // ✅ Check for test completion AND full payment (EXCEPT for Lab Staff)
+    if (testRequest.billing) {
+      const billing = testRequest.billing;
+      const totalAmount = billing.amount || 0;
+      const paidAmount = billing.paidAmount || 0;
+      const remainingBalance = totalAmount - paidAmount;
+      
+      // Check if tests are completed
+      const isTestCompleted = ['Testing_Completed', 'Billing_Paid', 'Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'].includes(testRequest.status);
+      
+      // Check if payment is complete
+      const isPaymentComplete = remainingBalance <= 0;
+      
+      // ✅ NEW: Allow Lab Staff to access reports they generate regardless of payment status
+      const isLabStaff = req.user?.role === 'lab_staff' || req.user?.userType === 'lab_staff';
+      
+      // ✅ FIXED: Only block access if tests are not completed AND payment is not complete (unless Lab Staff)
+      // This allows access if either tests are completed OR payment is complete
+      if (!isTestCompleted && (!isPaymentComplete && !isLabStaff)) {
+        const reasons = [];
+        if (!isTestCompleted) reasons.push('Tests not fully completed');
+        if (!isPaymentComplete && !isLabStaff) reasons.push('Payment not fully completed');
+        
+        console.log(`[REPORT DOWNLOAD] Blocked report download for ${req.user?.role}:`, {
+          testRequestId: id,
+          userRole: req.user?.role,
+          userType: req.user?.userType,
+          isLabStaff,
+          testStatus: testRequest.status,
+          isTestCompleted,
+          billingStatus: billing.status,
+          totalAmount,
+          paidAmount,
+          remainingBalance: remainingBalance.toFixed(2),
+          isPaymentComplete,
+          reasons: reasons.join(', ')
+        });
+        
+        return res.status(403).json({ 
+          message: 'Report download is locked. Tests must be completed and payment must be fully settled.',
+          error: 'report_locked',
+          details: {
+            reason: reasons.join(' and '),
+            testStatus: testRequest.status,
+            isTestCompleted,
+            totalAmount,
+            paidAmount,
+            remainingBalance,
+            isPaymentComplete,
+            userRole: req.user?.role,
+            isLabStaff
+          }
+        });
+      }
+      
+      console.log(`[REPORT DOWNLOAD] Allowing report download for ${req.user?.role} - conditions met:`, {
+        testRequestId: id,
+        userRole: req.user?.role,
+        testStatus: testRequest.status,
+        isTestCompleted,
+        totalAmount,
+        paidAmount,
+        remainingBalance: remainingBalance.toFixed(2),
+        isPaymentComplete,
+        isLabStaff
+      });
+    }
 
     // Check if test request is eligible for report download
     const validStatuses = ['Report_Generated', 'Report_Sent', 'Completed', 'feedback_sent'];

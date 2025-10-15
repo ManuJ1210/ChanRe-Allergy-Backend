@@ -30,7 +30,7 @@ import {
   processRefund,
   processTestRequestRefund
 } from '../controllers/billingController.js';
-import { generateInvoicePDF } from '../controllers/invoiceController.js';
+import { generateInvoicePDF, generateConsultationInvoicePDF, generateReassignmentInvoicePDF } from '../controllers/invoiceController.js';
 
 const router = express.Router();
 
@@ -95,6 +95,12 @@ router.put('/test-requests/:id/cancel', ensureCenterIsolation, cancelBill);
 
 // Download invoice PDF
 router.get('/test-requests/:id/invoice', ensureCenterIsolation, generateInvoicePDF);
+
+// Download consultation invoice PDF
+router.get('/patients/:patientId/consultation-invoice', ensureCenterIsolation, generateConsultationInvoicePDF);
+
+// Download reassignment invoice PDF
+router.get('/patients/:patientId/reassignment-invoice', ensureCenterIsolation, generateReassignmentInvoicePDF);
 
 // Get billing data for a specific center (Center Admin/Receptionist)
 router.get('/center', ensureCenterIsolation, getBillingDataForCenter);
