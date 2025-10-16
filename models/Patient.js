@@ -56,7 +56,7 @@ const billingSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
   paidAmount: { type: Number, default: 0 }, // Amount paid so far
   paymentMethod: { type: String, default: 'cash' },
-  status: { type: String, enum: ['pending', 'paid', 'partial', 'completed', 'unpaid', 'cancelled', 'refunded'], default: 'pending' },
+  status: { type: String, enum: ['pending', 'paid', 'partial', 'completed', 'unpaid', 'cancelled', 'refunded', 'partially_refunded'], default: 'pending' },
   paidBy: { type: String }, // Name of person who collected payment
   paidAt: { type: Date },
   paymentNotes: { type: String }, // Payment notes
@@ -81,6 +81,15 @@ const billingSchema = new mongoose.Schema({
   cancelledAt: { type: Date },
   cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   cancellationReason: { type: String },
+  // Penalty information for cancellation policy
+  penaltyInfo: {
+    penaltyAmount: { type: Number, default: 0 },
+    refundType: { type: String, enum: ['partial', 'full'], default: 'partial' },
+    patientBehavior: { type: String, enum: ['okay', 'rude'], default: 'okay' },
+    refundAmount: { type: Number, default: 0 },
+    appliedAt: { type: Date },
+    appliedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  },
   // Refund fields
   refundedAt: { type: Date },
   refundedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

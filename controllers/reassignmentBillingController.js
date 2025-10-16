@@ -51,6 +51,15 @@ class ReassignmentBillingController {
         });
       }
 
+      console.log(`🔍 Fetched patient ${patient.name} - Current reassignedBilling count: ${patient.reassignedBilling?.length || 0}`);
+      if (patient.reassignedBilling && patient.reassignedBilling.length > 0) {
+        console.log(`🔍 Existing reassignedBilling:`, patient.reassignedBilling.map(b => ({
+          invoiceNumber: b.invoiceNumber,
+          amount: b.amount,
+          status: b.status
+        })));
+      }
+
       // Find doctor
       const doctor = await User.findById(doctorId);
       if (!doctor) {
@@ -91,11 +100,13 @@ class ReassignmentBillingController {
         isReassignedEntry: true,
         doctorId,
         status: 'pending',
-        invoiceNumber: `INV-${Date.now()}-${patient.uhId || patient._id.toString().slice(-4)}`,
+        invoiceNumber: `INV-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}-${patient.uhId || patient._id.toString().slice(-4)}`,
         serviceDetails: serviceCharges.filter(s => s.name && s.amount).map(s => `${s.name}: ₹${s.amount}`).join(', '),
         paymentNotes: isEligibleForFreeReassignment ? 
           `Free reassignment for ${patient.name} (within 7 days)` : 
           notes || `Invoice for reassigned patient: ${patient.name}`,
+        createdAt: new Date(), // Ensure proper timestamp
+        updatedAt: new Date(), // Ensure proper timestamp
         // Store additional data in a custom field for frontend use
         customData: {
           consultationFee: finalConsultationFee,
@@ -113,13 +124,65 @@ class ReassignmentBillingController {
         }
       };
 
-      // Add billing entry to patient
+      // CRITICAL FIX: Ensure proper array handling for reassignment billing
+      console.log(`🔍 CRITICAL FIX: Starting reassignment billing creation for ${patient.name}`);
+      
+      // Ensure reassignedBilling array exists
       if (!patient.reassignedBilling) {
         patient.reassignedBilling = [];
+        console.log(`🔍 Initialized empty reassignedBilling array`);
       }
 
-      patient.reassignedBilling.push(invoiceData);
-      await patient.save();
+      console.log(`🔍 Before adding invoice - Patient ${patient.name} has ${patient.reassignedBilling.length} reassignment bills`);
+      
+      // Create a copy of existing bills to prevent reference issues
+      const existingBills = [...patient.reassignedBilling];
+      console.log(`🔍 Existing bills count: ${existingBills.length}`);
+      
+      // Add new invoice data
+      const newBills = [...existingBills, invoiceData];
+      console.log(`🔍 New bills count: ${newBills.length}`);
+      
+      // Set the new array
+      patient.reassignedBilling = newBills;
+      
+      console.log(`🔍 After setting new array - Patient ${patient.name} now has ${patient.reassignedBilling.length} reassignment bills`);
+      console.log(`🔍 New invoice data:`, {
+        invoiceNumber: invoiceData.invoiceNumber,
+        amount: invoiceData.amount,
+        status: invoiceData.status,
+        createdAt: invoiceData.createdAt
+      });
+      
+      console.log(`🔍 About to save patient - reassignedBilling length: ${patient.reassignedBilling.length}`);
+      
+      // Use updateOne to ensure atomic operation
+      const updateResult = await Patient.updateOne(
+        { _id: patientId },
+        { 
+          $push: { 
+            reassignedBilling: invoiceData 
+          },
+          $set: {
+            lastReassignedAt: new Date(),
+            isReassigned: true
+          }
+        }
+      );
+      
+      console.log(`🔍 Update result:`, updateResult);
+      
+      // Verify by fetching from database again
+      const verifyPatient = await Patient.findById(patientId);
+      console.log(`🔍 Verification - Database has ${verifyPatient.reassignedBilling?.length || 0} reassignment bills`);
+      if (verifyPatient.reassignedBilling && verifyPatient.reassignedBilling.length > 0) {
+        console.log(`🔍 Database reassignedBilling:`, verifyPatient.reassignedBilling.map(b => ({
+          invoiceNumber: b.invoiceNumber,
+          amount: b.amount,
+          status: b.status,
+          createdAt: b.createdAt
+        })));
+      }
 
       console.log('✅ Invoice created successfully:', {
         patientId,
@@ -510,7 +573,8 @@ class ReassignmentBillingController {
       const {
         patientId,
         amount,
-        method = 'cash',
+        refundMethod = 'cash',
+        refundType = 'full', // 'full' or 'partial'
         reason,
         notes = '',
         centerId
@@ -553,12 +617,23 @@ class ReassignmentBillingController {
         });
       }
 
-      // Check if refund exceeds paid amount
+      // Calculate total paid amount and already refunded amount
       const paidAmount = latestBill.customData?.totals?.paid || latestBill.paidAmount || 0;
-      if (refundAmount > paidAmount) {
+      const refundedAmount = latestBill.refunds?.reduce((sum, refund) => sum + (refund.amount || 0), 0) || 0;
+      const availableForRefund = paidAmount - refundedAmount;
+      
+      console.log('💰 Refund calculation:', {
+        paidAmount,
+        refundedAmount,
+        availableForRefund,
+        requestedRefund: refundAmount
+      });
+      
+      // Validate refund amount
+      if (refundAmount > availableForRefund) {
         return res.status(400).json({
           success: false,
-          message: `Refund amount (₹${refundAmount}) cannot exceed paid amount (₹${paidAmount})`
+          message: `Refund amount (₹${refundAmount}) cannot exceed available refund amount (₹${availableForRefund})`
         });
       }
 
@@ -583,7 +658,7 @@ class ReassignmentBillingController {
 
       const refundRecord = {
         amount: refundAmount,
-        method: method,
+        method: refundMethod,
         reason: reason,
         notes: notes,
         processedBy: req.user._id,
@@ -593,20 +668,29 @@ class ReassignmentBillingController {
 
       latestBill.refunds.push(refundRecord);
 
-      // Update bill status
-      if (newPaidAmount <= 0) {
-        // If full refund, mark as refunded
+      // Update bill status based on refund type and amount
+      if (refundType === 'full' && refundAmount >= availableForRefund) {
+        // Full refund - mark as refunded
         latestBill.status = 'refunded';
         latestBill.paidAt = null;
         latestBill.refundedAt = new Date();
         latestBill.refundedBy = req.user._id;
+        console.log('✅ Bill marked as fully refunded');
+      } else if (refundType === 'partial' || refundAmount < availableForRefund) {
+        // Partial refund - mark as partially refunded
+        latestBill.status = 'partially_refunded';
+        latestBill.refundedAt = new Date();
+        latestBill.refundedBy = req.user._id;
+        console.log('✅ Bill marked as partially refunded');
       } else if (newDueAmount <= 0) {
         // If partial refund but still fully paid
         latestBill.status = 'paid';
         latestBill.paidAt = new Date();
+        console.log('✅ Bill remains fully paid after partial refund');
       } else {
         // If partial refund and still has balance
         latestBill.status = 'partial';
+        console.log('✅ Bill remains partially paid after refund');
       }
 
       await patient.save();
@@ -627,7 +711,7 @@ class ReassignmentBillingController {
         await logPatientBillingRefund(
           patientId,
           refundAmount,
-          method,
+          refundMethod,
           reason,
           req.user.id || req.user._id,
           metadata
@@ -642,17 +726,22 @@ class ReassignmentBillingController {
       console.log('✅ Refund processed for reassignment consultation:', {
         patientId,
         amount: refundAmount,
-        method: method,
+        refundMethod: refundMethod,
+        refundType: refundType,
         reason: reason,
         refundNumber: refundRecord.refundNumber,
-        invoiceNumber: latestBill.invoiceNumber
+        invoiceNumber: latestBill.invoiceNumber,
+        newStatus: latestBill.status
       });
 
       res.status(200).json({
         success: true,
-        message: 'Refund processed successfully',
+        message: `${refundType === 'full' ? 'Full' : 'Partial'} refund processed successfully`,
+        refundType: refundType,
         refund: refundRecord,
-        updatedBill: latestBill
+        updatedBill: latestBill,
+        totalPaidAmount: paidAmount,
+        totalRefundedAmount: refundedAmount + refundAmount
       });
 
     } catch (error) {

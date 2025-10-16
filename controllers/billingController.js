@@ -3919,8 +3919,16 @@ export const processPayment = async (req, res) => {
 // Cancel bill with reason tracking
 export const cancelBillWithReason = async (req, res) => {
   try {
-    console.log('🚀 cancelBillWithReason called');
-    const { patientId, reason, initiateRefund } = req.body;
+    console.log('🚀 cancelBillWithReason called with penalty policy');
+    const { 
+      patientId, 
+      reason, 
+      initiateRefund,
+      patientBehavior,
+      refundType,
+      penaltyAmount,
+      refundAmount
+    } = req.body;
 
     if (!patientId || !reason) {
       return res.status(400).json({
@@ -3945,8 +3953,19 @@ export const cancelBillWithReason = async (req, res) => {
       });
     }
 
-    // Calculate total paid amount
-    const totalPaid = patient.billing.reduce((sum, bill) => sum + (bill.paidAmount || 0), 0);
+    // Get the latest bill for detailed processing
+    const latestBill = patient.billing[patient.billing.length - 1];
+    const totalPaid = latestBill.customData?.totals?.paid || latestBill.paidAmount || 0;
+    const totalAmount = latestBill.customData?.totals?.total || latestBill.amount || 0;
+
+    console.log('💰 Bill details:', {
+      totalAmount,
+      totalPaid,
+      refundType,
+      penaltyAmount,
+      refundAmount,
+      patientBehavior
+    });
 
     // Cancel all billing items
     patient.billing.forEach(bill => {
@@ -3954,28 +3973,49 @@ export const cancelBillWithReason = async (req, res) => {
       bill.cancelledAt = new Date();
       bill.cancelledBy = req.user.id || req.user._id;
       bill.cancellationReason = reason;
+      
+      // Add penalty information to the latest bill
+      if (bill === latestBill) {
+        bill.penaltyInfo = {
+          penaltyAmount: penaltyAmount || 0,
+          refundType: refundType || 'partial',
+          patientBehavior: patientBehavior || 'okay',
+          refundAmount: refundAmount || 0,
+          appliedAt: new Date(),
+          appliedBy: req.user.id || req.user._id
+        };
+      }
     });
 
     // Save patient
     await patient.save();
 
-    // Log cancellation (skip test request logging for patient billing)
+    // Log cancellation with penalty details
     try {
       const cancellationData = {
         patientId,
         reason,
         cancelledBy: req.user.id || req.user._id,
         totalPaid,
-        initiateRefund
+        totalAmount,
+        initiateRefund,
+        penaltyInfo: {
+          penaltyAmount: penaltyAmount || 0,
+          refundType: refundType || 'partial',
+          patientBehavior: patientBehavior || 'okay',
+          refundAmount: refundAmount || 0
+        }
       };
 
-      console.log('💳 Logging patient billing cancellation transaction');
+      console.log('💳 Logging patient billing cancellation with penalty policy');
       
       // Prepare metadata
       const metadata = {
         ipAddress: req.ip || req.connection.remoteAddress,
         userAgent: req.headers?.['user-agent'],
-        source: 'web'
+        source: 'web',
+        penaltyPolicy: true,
+        patientBehavior: patientBehavior || 'okay'
       };
 
       // Log the cancellation transaction
@@ -3986,22 +4026,37 @@ export const cancelBillWithReason = async (req, res) => {
         metadata
       );
       
-      console.log('✅ Patient billing cancellation logged successfully');
+      console.log('✅ Patient billing cancellation with penalty logged successfully');
     } catch (logError) {
       console.error('❌ Error logging cancellation:', logError);
     }
 
-    console.log('✅ Bill cancelled successfully');
+    // Prepare response message based on penalty policy
+    let responseMessage = 'Bill cancelled successfully';
+    if (totalPaid > 0) {
+      if (refundType === 'full') {
+        responseMessage = 'Bill cancelled and full refund processed';
+      } else {
+        responseMessage = `Bill cancelled and partial refund processed (₹${penaltyAmount || 0} penalty applied)`;
+      }
+    }
+
+    console.log('✅ Bill cancelled with penalty policy');
     res.status(200).json({
       success: true,
-      message: 'Bill cancelled successfully',
+      message: responseMessage,
       refundInitiated: initiateRefund && totalPaid > 0,
       totalPaid,
+      totalAmount,
+      penaltyAmount: penaltyAmount || 0,
+      refundAmount: refundAmount || 0,
+      refundType: refundType || 'partial',
+      patientBehavior: patientBehavior || 'okay',
       patient
     });
 
   } catch (error) {
-    console.error('❌ Error cancelling bill:', error);
+    console.error('❌ Error cancelling bill with penalty policy:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to cancel bill',
@@ -4014,15 +4069,21 @@ export const cancelBillWithReason = async (req, res) => {
 export const processRefund = async (req, res) => {
   try {
     console.log('🚀 processRefund called');
+    console.log('📝 Request body:', req.body);
     const { 
       patientId, 
       amount, 
       refundMethod, 
       reason, 
-      notes 
+      notes,
+      refundType = 'full', // 'full' or 'partial'
+      patientBehavior = 'okay' // 'okay' or 'rude' - determines penalty policy
     } = req.body;
 
+    console.log('🔍 Parsed parameters:', { patientId, amount, refundMethod, reason, notes, refundType, patientBehavior });
+
     if (!patientId || !amount || !refundMethod || !reason) {
+      console.log('❌ Missing required fields');
       return res.status(400).json({
         success: false,
         message: 'Patient ID, amount, refund method, and reason are required'
@@ -4030,15 +4091,21 @@ export const processRefund = async (req, res) => {
     }
 
     // Find patient
+    console.log('🔍 Looking for patient with ID:', patientId);
     const patient = await Patient.findById(patientId);
     if (!patient) {
+      console.log('❌ Patient not found');
       return res.status(404).json({
         success: false,
         message: 'Patient not found'
       });
     }
 
+    console.log('✅ Patient found:', patient.name);
+    console.log('📊 Patient billing records:', patient.billing?.length || 0);
+
     if (!patient.billing || patient.billing.length === 0) {
+      console.log('❌ No billing records found');
       return res.status(400).json({
         success: false,
         message: 'No billing records found for this patient'
@@ -4046,21 +4113,127 @@ export const processRefund = async (req, res) => {
     }
 
     const refundAmount = parseFloat(amount);
+    console.log('💰 Refund amount:', refundAmount);
+    
+    // Calculate total paid amount
+    const totalPaidAmount = patient.billing.reduce((sum, bill) => sum + (bill.paidAmount || 0), 0);
+    console.log('💳 Total paid amount:', totalPaidAmount);
+    
+    // Validate refund amount
+    if (refundAmount <= 0) {
+      console.log('❌ Invalid refund amount:', refundAmount);
+      return res.status(400).json({
+        success: false,
+        message: 'Refund amount must be greater than 0'
+      });
+    }
+    
+    if (refundAmount > totalPaidAmount) {
+      console.log('❌ Refund amount exceeds total paid amount');
+      return res.status(400).json({
+        success: false,
+        message: `Refund amount (₹${refundAmount}) cannot exceed total paid amount (₹${totalPaidAmount})`
+      });
+    }
 
-    // Update billing status to refunded
-    patient.billing.forEach(bill => {
-      if (bill.status === 'cancelled') {
-        bill.status = 'refunded';
-        bill.refundedAt = new Date();
-        bill.refundedBy = req.user.id || req.user._id;
-        bill.refundMethod = refundMethod;
-        bill.refundReason = reason;
-        bill.refundNotes = notes || '';
-      }
+    // Calculate total already refunded amount
+    const totalRefundedAmount = patient.billing.reduce((sum, bill) => sum + (bill.refundAmount || 0), 0);
+    const availableForRefund = totalPaidAmount - totalRefundedAmount;
+    console.log('🔄 Total refunded amount:', totalRefundedAmount);
+    console.log('✅ Available for refund:', availableForRefund);
+    
+    if (refundAmount > availableForRefund) {
+      console.log('❌ Refund amount exceeds available refund amount');
+      return res.status(400).json({
+        success: false,
+        message: `Refund amount (₹${refundAmount}) cannot exceed available refund amount (₹${availableForRefund})`
+      });
+    }
+
+    let remainingRefundAmount = refundAmount;
+    const refundedBills = [];
+
+    console.log('🔄 Starting refund processing with penalty policy...');
+    console.log('📋 Total bills to process:', patient.billing.length);
+    console.log('🏥 Penalty Policy:', { patientBehavior, refundType });
+
+    // Process refunds for each bill with penalty policy
+    // Registration fee penalty policy: Only refund registration fee if patient is rude AND requesting full refund
+    const sortedBills = patient.billing.sort((a, b) => {
+      // Sort by: cancelled bills first, then by paid amount (descending)
+      if (a.status === 'cancelled' && b.status !== 'cancelled') return -1;
+      if (b.status === 'cancelled' && a.status !== 'cancelled') return 1;
+      return (b.paidAmount || 0) - (a.paidAmount || 0);
     });
 
+    console.log('📊 Sorted bills:', sortedBills.map(b => ({ 
+      type: b.type, 
+      amount: b.amount, 
+      paidAmount: b.paidAmount, 
+      refundAmount: b.refundAmount, 
+      status: b.status 
+    })));
+
+    for (const bill of sortedBills) {
+      if (remainingRefundAmount <= 0) break;
+      
+      const billPaidAmount = bill.paidAmount || 0;
+      const billRefundedAmount = bill.refundAmount || 0;
+      const billAvailableForRefund = billPaidAmount - billRefundedAmount;
+      
+      console.log(`🔍 Processing bill: ${bill.type}, Paid: ${billPaidAmount}, Refunded: ${billRefundedAmount}, Available: ${billAvailableForRefund}`);
+      
+      if (billAvailableForRefund <= 0) continue;
+      
+      // PENALTY POLICY: Registration fee should only be refunded if patient is rude AND requesting full refund
+      if (bill.type === 'registration') {
+        const shouldRefundRegistrationFee = patientBehavior === 'rude' && refundType === 'full';
+        
+        if (!shouldRefundRegistrationFee) {
+          console.log(`🚫 Skipping registration fee refund - Penalty Policy: Patient behavior=${patientBehavior}, Refund type=${refundType}`);
+          console.log(`💰 Registration fee (₹${billPaidAmount}) held as penalty`);
+          continue;
+        } else {
+          console.log(`✅ Registration fee refund allowed - Patient is rude and requesting full refund`);
+        }
+      }
+      
+      const refundForThisBill = Math.min(remainingRefundAmount, billAvailableForRefund);
+      console.log(`💰 Refunding ${refundForThisBill} for bill ${bill.type}`);
+      
+      // Update bill with refund information
+      bill.refundAmount = (bill.refundAmount || 0) + refundForThisBill;
+      bill.refundedAt = new Date();
+      bill.refundedBy = req.user.id || req.user._id;
+      bill.refundMethod = refundMethod;
+      bill.refundReason = reason;
+      bill.refundNotes = notes || '';
+      
+      // Update bill status based on refund type and amount
+      if (refundType === 'full' && refundForThisBill >= billPaidAmount) {
+        bill.status = 'refunded';
+        console.log(`✅ Bill ${bill.type} marked as fully refunded`);
+      } else if (refundType === 'partial' || refundForThisBill < billPaidAmount) {
+        bill.status = 'partially_refunded';
+        console.log(`🔄 Bill ${bill.type} marked as partially refunded`);
+      }
+      
+      refundedBills.push({
+        billId: bill._id,
+        description: bill.description || bill.type,
+        refundAmount: refundForThisBill,
+        totalPaid: billPaidAmount,
+        totalRefunded: bill.refundAmount
+      });
+      
+      remainingRefundAmount -= refundForThisBill;
+      console.log(`📉 Remaining refund amount: ${remainingRefundAmount}`);
+    }
+
     // Save patient
+    console.log('💾 Saving patient with updated billing...');
     await patient.save();
+    console.log('✅ Patient saved successfully');
 
     // Log refund transaction
     try {
@@ -4071,7 +4244,9 @@ export const processRefund = async (req, res) => {
         ipAddress: req.ip || req.connection.remoteAddress,
         userAgent: req.headers?.['user-agent'],
         source: 'web',
-        externalRefundId: `REF-${Date.now()}-${patientId.toString().slice(-6)}`
+        externalRefundId: `REF-${Date.now()}-${patientId.toString().slice(-6)}`,
+        refundType,
+        refundedBills: refundedBills.length
       };
 
       // Log the refund transaction
@@ -4093,17 +4268,28 @@ export const processRefund = async (req, res) => {
     console.log('✅ Refund processed successfully');
     res.status(200).json({
       success: true,
-      message: 'Refund processed successfully',
+      message: `${refundType === 'full' ? 'Full' : 'Partial'} refund processed successfully`,
       refundAmount,
+      refundType,
+      refundedBills,
+      totalPaidAmount,
+      totalRefundedAmount: patient.billing.reduce((sum, bill) => sum + (bill.refundAmount || 0), 0),
       patient
     });
 
   } catch (error) {
     console.error('❌ Error processing refund:', error);
+    console.error('❌ Error stack:', error.stack);
+    console.error('❌ Error details:', {
+      name: error.name,
+      message: error.message,
+      code: error.code
+    });
     res.status(500).json({
       success: false,
       message: 'Failed to process refund',
-      error: error.message
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };

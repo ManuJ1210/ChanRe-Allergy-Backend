@@ -409,10 +409,23 @@ export const getAllBillsAndTransactions = async (req, res) => {
       .populate('assignedDoctor', 'name')
       .populate('currentDoctor', 'name')
       .select('name uhId age gender contact billing reassignedBilling createdAt');
+    
+    // Debug: Check specific patient's reassignment billing
+    const rahulPatient = patients.find(p => p.name === 'Rahul' && p.uhId === '2345002');
+    if (rahulPatient) {
+      console.log(`🔍 DEBUG: Rahul patient found with ${rahulPatient.reassignedBilling?.length || 0} reassignment bills`);
+      console.log(`🔍 DEBUG: Rahul reassignment billing:`, rahulPatient.reassignedBilling);
+    }
 
     const invoiceMap = new Map(); // Group by patient and date (to combine all services in one visit)
     
+    console.log(`🔍 Processing ${patients.length} patients for billing data`);
+    
     patients.forEach(patient => {
+      console.log(`🔍 Patient: ${patient.name} (${patient.uhId}) - Reassignment billing count: ${patient.reassignedBilling?.length || 0}`);
+      if (patient.reassignedBilling && patient.reassignedBilling.length > 0) {
+        console.log(`🔍 Raw reassignment billing data for ${patient.name}:`, JSON.stringify(patient.reassignedBilling, null, 2));
+      }
       // Process regular consultation bills - GROUP BY PATIENT AND DATE (not just invoice number)
       if (patient.billing && patient.billing.length > 0) {
         // Group bills by date (within 1 day) to combine all services from same visit
@@ -520,6 +533,15 @@ export const getAllBillsAndTransactions = async (req, res) => {
 
       // Process reassignment bills - GROUP BY INVOICE NUMBER
       if (patient.reassignedBilling && patient.reassignedBilling.length > 0) {
+        console.log(`🔍 Processing ${patient.reassignedBilling.length} reassignment bills for patient ${patient.name}:`, 
+          patient.reassignedBilling.map(b => ({ 
+            invoiceNumber: b.invoiceNumber, 
+            amount: b.amount, 
+            status: b.status,
+            createdAt: b.createdAt 
+          }))
+        );
+        
         patient.reassignedBilling.forEach(bill => {
           const billDate = new Date(bill.createdAt || patient.createdAt);
           const matchesDateFilter = (!dateFilter.$gte || billDate >= dateFilter.$gte) && 
@@ -528,8 +550,11 @@ export const getAllBillsAndTransactions = async (req, res) => {
           if ((!startDate && !endDate) || matchesDateFilter) {
             const invoiceNum = bill.invoiceNumber || `REASSIGN-${bill._id}`;
             
+            console.log(`🔍 Processing reassignment bill: ${invoiceNum} for patient ${patient.name}`);
+            
             // Get or create invoice entry
             if (!invoiceMap.has(invoiceNum)) {
+              console.log(`📝 Creating new invoice entry for reassignment: ${invoiceNum}`);
               invoiceMap.set(invoiceNum, {
                 _id: bill._id,
                 patientId: patient._id,
@@ -559,6 +584,8 @@ export const getAllBillsAndTransactions = async (req, res) => {
                 generatedBy: bill.generatedBy,
                 generatedAt: bill.createdAt
               });
+            } else {
+              console.log(`⚠️ Invoice ${invoiceNum} already exists, skipping duplicate`);
             }
           }
         });
@@ -566,6 +593,13 @@ export const getAllBillsAndTransactions = async (req, res) => {
     });
 
     const consultationBills = Array.from(invoiceMap.values());
+    console.log(`📊 Total invoices created: ${consultationBills.length}`);
+    console.log(`📊 Reassignment invoices:`, consultationBills.filter(b => b.billType === 'Reassignment').map(b => ({
+      invoiceNumber: b.invoiceNumber,
+      patientName: b.patientName,
+      amount: b.amount,
+      status: b.status
+    })));
 
     // 2. Get test/lab bills from TestRequest
     const testQuery = { centerId };
