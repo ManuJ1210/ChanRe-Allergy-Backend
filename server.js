@@ -159,15 +159,54 @@ app.use('/api/accountants', accountantRoutes);
 app.use('/api/lab-tests', labTestRoutes);
 
 
+// Database connection check middleware (only for API routes that need database)
+app.use('/api/auth', (req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({
+      success: false,
+      message: 'Database connection not available',
+      error: 'Please ensure MongoDB is running'
+    });
+  }
+  next();
+});
+
+app.use('/api/login-history', (req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({
+      success: false,
+      message: 'Database connection not available',
+      error: 'Please ensure MongoDB is running'
+    });
+  }
+  next();
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(500).json({ 
+    success: false, 
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+  });
+});
+
 // Use environment variable or fallback to local MongoDB
 const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/chenre-allergy';
 
 mongoose.connect(mongoURI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 5000, // Timeout after 5 seconds
+  connectTimeoutMS: 5000, // Give up initial connection after 5 seconds
 })
 .then(() => console.log('MongoDB connected'))
-.catch((err) => console.error('MongoDB connection failed:', err));
+.catch((err) => {
+  console.error('MongoDB connection failed:', err.message);
+  console.log('⚠️  Server will continue without database connection');
+  console.log('⚠️  Please install MongoDB to enable full functionality');
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
