@@ -36,9 +36,11 @@ import reassignedInvoiceRoutes from './routes/reassignedInvoiceRoutes.js';
 import reassignmentBillingRoutes from './routes/reassignmentBillingRoutes.js';
 import paymentLogRoutes from './routes/paymentLogRoutes.js';
 import appointmentRoutes from './routes/appointmentRoutes.js';
+import patientAppointmentRoutes from './routes/patientAppointmentRoutes.js';
 import workingHoursRoutes from './routes/workingHoursRoutes.js';
 import accountantRoutes from './routes/accountantRoutes.js';
 import labTestRoutes from './routes/labTestRoutes.js';
+import emailTestRoutes from './routes/emailTestRoutes.js';
 
 
 dotenv.config();
@@ -154,9 +156,11 @@ app.use('/api/reassigned-patients', reassignedPatientRoutes);
 app.use('/api/patients', reassignRoutes);
 app.use('/api/reassigned-invoices', reassignedInvoiceRoutes);
 app.use('/api/appointments', appointmentRoutes);
+app.use('/api/patient-appointments', patientAppointmentRoutes);
 app.use('/api/working-hours', workingHoursRoutes);
 app.use('/api/accountants', accountantRoutes);
 app.use('/api/lab-tests', labTestRoutes);
+app.use('/api/email-test', emailTestRoutes);
 
 
 // Database connection check middleware (only for API routes that need database)
