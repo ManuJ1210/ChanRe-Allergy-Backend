@@ -18,7 +18,8 @@ import {
   markPatientAsViewed,
   reassignDoctor,
   autoReassignUnviewedPatients,
-  recordPatientRevisit
+  recordPatientRevisit,
+  getPatientAppointment
 } from '../controllers/patientController.js';
 import { protect, ensureCenterIsolation, ensureDoctor, ensureDoctorOrReceptionist, ensureCenterStaffOrDoctor } from '../middleware/authMiddleware.js';
 
@@ -36,6 +37,7 @@ router.get('/', getPatients);
 router.get('/receptionist/mine', getPatientsByReceptionist);
 router.get('/doctor/:doctorId', getPatientsByDoctor);
 router.get('/:id', getPatientById);
+router.get('/:id/appointment', getPatientAppointment);
 // Center admin, center receptionist, and center doctor can update/delete patients
 router.put('/:id', ensureCenterStaffOrDoctor, updatePatient);
 router.delete('/:id', ensureCenterStaffOrDoctor, deletePatient);

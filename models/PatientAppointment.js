@@ -59,6 +59,12 @@ const patientAppointmentSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  confirmedDate: {
+    type: Date
+  },
+  confirmedTime: {
+    type: String
+  },
   appointmentType: {
     type: String,
     enum: ['consultation', 'followup', 'emergency'],
@@ -112,6 +118,15 @@ const patientAppointmentSchema = new mongoose.Schema({
   },
   cancellationReason: {
     type: String
+  },
+  
+  // Patient reference (when patient is created from appointment)
+  patientId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Patient'
+  },
+  completedAt: {
+    type: Date
   },
   
   // Location tracking for nearby search

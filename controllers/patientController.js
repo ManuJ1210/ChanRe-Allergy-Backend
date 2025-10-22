@@ -12,7 +12,9 @@ const addPatient = async (req, res) => {
       address,
       assignedDoctor,
       centerCode,
-      centerId
+      centerId,
+      appointmentId,
+      appointmentConfirmed
     } = req.body;
 
     // For receptionists, we'll be more flexible with centerId
@@ -86,10 +88,34 @@ const addPatient = async (req, res) => {
       registeredBy: req.user._id
     };
 
+    // If this is from an existing appointment, add appointment reference
+    if (appointmentId && appointmentConfirmed) {
+      patientData.appointmentId = appointmentId;
+      patientData.fromAppointment = true;
+    }
+
     const newPatient = new Patient(patientData);
     const savedPatient = await newPatient.save();
+
+    // If this is from an existing appointment, update the appointment status
+    if (appointmentId && appointmentConfirmed) {
+      try {
+        const PatientAppointment = (await import('../models/PatientAppointment.js')).default;
+        await PatientAppointment.findByIdAndUpdate(appointmentId, {
+          status: 'completed',
+          patientId: savedPatient._id,
+          completedAt: new Date()
+        });
+      } catch (appointmentError) {
+        console.error('Error updating appointment:', appointmentError);
+        // Don't fail the patient creation if appointment update fails
+      }
+    }
     
-    res.status(201).json({ message: "Patient created successfully", patient: savedPatient });
+    res.status(201).json({ 
+      message: appointmentId ? "Patient created successfully from existing appointment" : "Patient created successfully", 
+      patient: savedPatient 
+    });
   } catch (error) {
     console.error("Create patient error:", error);
     res.status(500).json({ message: "Failed to create patient", error: error.message });
@@ -1048,6 +1074,34 @@ const recordPatientRevisit = async (req, res) => {
   }
 };
 
+// Get patient appointment data
+const getPatientAppointment = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    
+    const patient = await Patient.findById(patientId)
+      .populate('appointmentId', 'patientName patientEmail patientPhone preferredDate preferredTime confirmedDate confirmedTime appointmentType reasonForVisit symptoms status confirmationCode');
+    
+    if (!patient) {
+      return res.status(404).json({ message: 'Patient not found' });
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        patientId: patient._id,
+        appointmentId: patient.appointmentId,
+        fromAppointment: patient.fromAppointment,
+        appointmentTime: patient.appointmentTime,
+        appointmentStatus: patient.appointmentStatus
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching patient appointment:', error);
+    res.status(500).json({ message: 'Failed to fetch patient appointment data' });
+  }
+};
+
 // ✅ Named exports (required for ESM import)
 export {
   addPatient,
@@ -1069,5 +1123,6 @@ export {
   markPatientAsViewed,
   reassignDoctor,
   autoReassignUnviewedPatients,
-  recordPatientRevisit
+  recordPatientRevisit,
+  getPatientAppointment
 };

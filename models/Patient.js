@@ -174,6 +174,10 @@ const patientSchema = new mongoose.Schema({
     enum: ['OP', 'IP', 'followup'], 
     default: 'OP' 
   }, // Type of consultation
+  
+  // Online appointment integration
+  appointmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'PatientAppointment' }, // Reference to online appointment
+  fromAppointment: { type: Boolean, default: false }, // Whether patient was created from online appointment
   tests: [testSchema],
   history: [historySchema],
   medications: [medicationSchema],

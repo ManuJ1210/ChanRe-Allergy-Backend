@@ -391,3 +391,117 @@ export const updateAppointmentStatus = asyncHandler(async (req, res) => {
   }
 });
 
+// Update appointment details (date, time, notes)
+export const updateAppointmentDetails = asyncHandler(async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+    const { confirmedDate, confirmedTime, notes, status } = req.body;
+
+    const appointment = await PatientAppointment.findById(appointmentId);
+    
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    // Update appointment details
+    if (confirmedDate) {
+      appointment.confirmedDate = new Date(confirmedDate);
+    }
+    if (confirmedTime) {
+      appointment.confirmedTime = confirmedTime;
+    }
+    if (notes !== undefined) {
+      appointment.notes = notes;
+    }
+    if (status) {
+      appointment.status = status;
+    }
+    
+    if (status === 'confirmed') {
+      appointment.confirmedAt = new Date();
+    }
+
+    await appointment.save();
+
+    // Send confirmation email to patient if appointment is confirmed
+    if (status === 'confirmed') {
+      try {
+        await sendAppointmentConfirmation(appointment);
+      } catch (emailError) {
+        console.error('Error sending confirmation email:', emailError);
+        // Don't fail the request if email fails
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Appointment details updated successfully',
+      data: appointment
+    });
+  } catch (error) {
+    console.error('Error updating appointment details:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update appointment details',
+      error: error.message
+    });
+  }
+});
+
+// Search appointments by patient name (for autocomplete)
+export const searchAppointmentsByPatientName = asyncHandler(async (req, res) => {
+  try {
+    const { name, phone, centerId } = req.query;
+    
+    if ((!name || name.length < 2) && (!phone || phone.length < 2)) {
+      return res.json({
+        success: true,
+        data: []
+      });
+    }
+
+    // Build search query
+    const searchQuery = {
+      status: { $in: ['pending', 'confirmed'] } // Only show active appointments
+    };
+
+    // Add name or phone search
+    if (name && name.length >= 2) {
+      searchQuery.patientName = { $regex: name, $options: 'i' };
+    }
+    
+    if (phone && phone.length >= 2) {
+      searchQuery.patientPhone = { $regex: phone, $options: 'i' };
+    }
+
+    // If centerId is provided, filter by center
+    if (centerId) {
+      searchQuery.centerId = centerId;
+    }
+
+    console.log('Search query:', searchQuery);
+
+    const appointments = await PatientAppointment.find(searchQuery)
+      .select('patientName patientPhone patientEmail patientAge patientGender patientAddress preferredDate preferredTime confirmedDate confirmedTime status confirmationCode centerName')
+      .sort({ preferredDate: -1 })
+      .limit(10); // Limit to 10 suggestions
+
+    console.log('Found appointments:', appointments.length);
+
+    res.json({
+      success: true,
+      data: appointments
+    });
+  } catch (error) {
+    console.error('Error searching appointments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to search appointments',
+      error: error.message
+    });
+  }
+});
+
