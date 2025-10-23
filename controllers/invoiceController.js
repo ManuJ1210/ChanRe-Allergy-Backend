@@ -118,12 +118,7 @@ export const generateInvoicePDF = async (req, res) => {
        .text(`Phone: ${hospitalPhone}`, 20, 58)
        .text(`Email: ${hospitalEmail}`, 20, 71);
     
-    // Bill Title & Details (Top Right)
-    doc.fillColor('#1e40af')
-       .fontSize(20)
-       .font('Helvetica-Bold')
-       .text('OUTPATIENT BILL', 400, 20, { align: 'right', width: 170 });
-    
+    // Bill Details (Top Right)
     const billNumber = testRequest.billing.invoiceNumber || `BILL-${Date.now()}`;
     const billDate = testRequest.billing.generatedAt ? 
       new Date(testRequest.billing.generatedAt).toLocaleDateString('en-GB') : 
@@ -135,8 +130,8 @@ export const generateInvoicePDF = async (req, res) => {
     doc.fillColor('#000000')
        .fontSize(10)
        .font('Helvetica')
-       .text(`Bill No: ${billNumber}`, 400, 45, { align: 'right', width: 170 })
-       .text(`Date: ${billDate}, ${billTime}`, 400, 58, { align: 'right', width: 170 });
+       .text(`Bill No: ${billNumber}`, 400, 20, { align: 'right', width: 170 })
+       .text(`BILL Date: ${billDate}, ${billTime}`, 400, 33, { align: 'right', width: 170 });
     
     // ===== PATIENT & CONSULTANT INFORMATION =====
     const infoY = 100;
@@ -546,12 +541,7 @@ export const generateConsultationInvoicePDF = async (req, res) => {
        .text(`Phone: ${hospitalPhone}`, 20, 58)
        .text(`Email: ${hospitalEmail}`, 20, 71);
     
-    // Bill Title & Details (Top Right)
-    doc.fillColor('#1e40af')
-       .fontSize(20)
-       .font('Helvetica-Bold')
-       .text('OUTPATIENT BILL', 400, 20, { align: 'right', width: 170 });
-    
+    // Bill Details (Top Right)
     const billNumber = `CONSULT-${Date.now()}`;
     const billDate = new Date().toLocaleDateString('en-GB');
     const billTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true });
@@ -559,8 +549,8 @@ export const generateConsultationInvoicePDF = async (req, res) => {
     doc.fillColor('#000000')
        .fontSize(10)
        .font('Helvetica')
-       .text(`Bill No: ${billNumber}`, 400, 45, { align: 'right', width: 170 })
-       .text(`Date: ${billDate}, ${billTime}`, 400, 58, { align: 'right', width: 170 });
+       .text(`Bill No: ${billNumber}`, 400, 20, { align: 'right', width: 170 })
+       .text(`BILL Date: ${billDate}, ${billTime}`, 400, 33, { align: 'right', width: 170 });
     
     // ===== PATIENT & CONSULTANT INFORMATION =====
     const infoY = 100;
@@ -895,12 +885,7 @@ export const generateReassignmentInvoicePDF = async (req, res) => {
        .text(`Phone: ${hospitalPhone}`, 20, 58)
        .text(`Email: ${hospitalEmail}`, 20, 71);
     
-    // Bill Title & Details (Top Right)
-    doc.fillColor('#1e40af')
-       .fontSize(20)
-       .font('Helvetica-Bold')
-       .text('OUTPATIENT BILL', 400, 20, { align: 'right', width: 170 });
-    
+    // Bill Details (Top Right)
     const billNumber = `REASSIGN-${Date.now()}`;
     const billDate = new Date().toLocaleDateString('en-GB');
     const billTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true });
@@ -908,8 +893,8 @@ export const generateReassignmentInvoicePDF = async (req, res) => {
     doc.fillColor('#000000')
        .fontSize(10)
        .font('Helvetica')
-       .text(`Bill No: ${billNumber}`, 400, 45, { align: 'right', width: 170 })
-       .text(`Date: ${billDate}, ${billTime}`, 400, 58, { align: 'right', width: 170 });
+       .text(`Bill No: ${billNumber}`, 400, 20, { align: 'right', width: 170 })
+       .text(`BILL Date: ${billDate}, ${billTime}`, 400, 33, { align: 'right', width: 170 });
     
     // ===== PATIENT & CONSULTANT INFORMATION =====
     const infoY = 100;
