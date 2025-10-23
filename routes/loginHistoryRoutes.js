@@ -30,6 +30,7 @@ router.get('/stats', protect, checkSuperAdmin, getLoginStats);
 // Delete routes (Superadmin only)
 router.delete('/:id', protect, checkSuperAdmin, deleteLoginHistory);
 router.delete('/bulk', protect, checkSuperAdmin, bulkDeleteLoginHistory);
+router.post('/bulk-delete', protect, checkSuperAdmin, bulkDeleteLoginHistory); // Alternative POST route
 router.delete('/all', protect, checkSuperAdmin, deleteAllLoginHistory);
 
 // Update location info (Superadmin only)
