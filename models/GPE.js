@@ -3,6 +3,8 @@ import mongoose from 'mongoose';
 const gpeSchema = new mongoose.Schema({
   patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true },
   weight: String,
+  height: String,
+  bmi: String,
   pulse: String,
   bp: String,
   rr: String,
@@ -15,8 +17,10 @@ const gpeSchema = new mongoose.Schema({
   pa: String,
   drugAdverseNotion: String,
   drugCompliance: String,
-  followUpAdvice: String,
-  eyeMedication: String,
+  adviseFollowUp: String,
+  otherMedications: String,
+  followUpAdvice: String, // Keep for backward compatibility
+  eyeMedication: String, // Keep for backward compatibility
   updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 

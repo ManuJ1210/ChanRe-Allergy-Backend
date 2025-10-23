@@ -2,12 +2,55 @@ import GPE from '../models/GPE.js';
 
 export const createGPE = async (req, res) => {
   try {
-    const { patientId, weight, pulse, bp, rr, temp, spo2, entExamination, cns, cvs, rs, pa, drugAdverseNotion, drugCompliance, followUpAdvice, eyeMedication } = req.body;
+    const { 
+      patientId, 
+      weight, 
+      height, 
+      bmi, 
+      pulse, 
+      bp, 
+      rr, 
+      temp, 
+      spo2, 
+      entExamination, 
+      cns, 
+      cvs, 
+      rs, 
+      pa, 
+      drugAdverseNotion, 
+      drugCompliance, 
+      adviseFollowUp, 
+      otherMedications,
+      followUpAdvice, 
+      eyeMedication 
+    } = req.body;
     const updatedBy = req.user._id;
     if (!patientId) {
       return res.status(400).json({ message: 'patientId is required' });
     }
-    const record = await GPE.create({ patientId, weight, pulse, bp, rr, temp, spo2, entExamination, cns, cvs, rs, pa, drugAdverseNotion, drugCompliance, followUpAdvice, eyeMedication, updatedBy });
+    const record = await GPE.create({ 
+      patientId, 
+      weight, 
+      height, 
+      bmi, 
+      pulse, 
+      bp, 
+      rr, 
+      temp, 
+      spo2, 
+      entExamination, 
+      cns, 
+      cvs, 
+      rs, 
+      pa, 
+      drugAdverseNotion, 
+      drugCompliance, 
+      adviseFollowUp, 
+      otherMedications,
+      followUpAdvice, 
+      eyeMedication, 
+      updatedBy 
+    });
     res.status(201).json({ message: 'GPE record added', data: record });
   } catch (err) {
     res.status(500).json({ message: 'Failed to add record', error: err.message });
