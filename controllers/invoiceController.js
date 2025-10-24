@@ -367,82 +367,76 @@ export const generateInvoicePDF = async (req, res) => {
        .fontSize(10)
        .font('Helvetica-Bold')
        .text('DATE', 30, paymentTableY + 8)
-       .text('SERVICE', 80, paymentTableY + 8)
-       .text('AMOUNT', 180, paymentTableY + 8)
-       .text('PAID', 250, paymentTableY + 8)
-       .text('REFUNDED', 320, paymentTableY + 8)
-       .text('BALANCE', 400, paymentTableY + 8)
+       .text('TIME', 80, paymentTableY + 8)
+       .text('AMOUNT', 150, paymentTableY + 8)
+       .text('PAYMENT METHOD', 220, paymentTableY + 8)
+       .text('TRANSACTION ID', 350, paymentTableY + 8)
        .text('STATUS', 480, paymentTableY + 8);
     
     let paymentRowY = paymentTableY + 25;
     
-    // Add payment history rows
-    if (testRequest.billing.items && testRequest.billing.items.length > 0) {
-      testRequest.billing.items.forEach((item, index) => {
-        const itemTotal = (item.quantity || 1) * (item.unitPrice || 0);
-        const itemPaymentRatio = itemTotal / grandTotal;
-        const itemPaidAmount = paidAmount * itemPaymentRatio;
-        const itemBalance = itemTotal - itemPaidAmount;
-        
-        const status = testRequest.billing.status === 'paid' || testRequest.billing.status === 'payment_received' ? 'Paid' : 
-                      testRequest.billing.status === 'refunded' ? 'Refunded' : 'Pending';
-        const paymentDate = testRequest.billing.paidAt ? 
-          new Date(testRequest.billing.paidAt).toLocaleDateString('en-GB') : 
-          new Date().toLocaleDateString('en-GB');
-        
-        // Payment history row
+    // Import PaymentLog model to fetch payment history
+    const PaymentLog = (await import('../models/PaymentLog.js')).default;
+    
+    try {
+      // Fetch payment logs for this test request
+      const paymentLogs = await PaymentLog.find({ 
+        $or: [
+          { testRequestId: testRequestId },
+          { patientId: testRequest.patientId?._id || testRequest.patientId }
+        ],
+        status: 'completed'
+      }).sort({ createdAt: -1 });
+      
+      if (paymentLogs.length > 0) {
+        // Show individual payment transactions
+        paymentLogs.forEach((payment, index) => {
+          const paymentDate = new Date(payment.createdAt).toLocaleDateString('en-GB');
+          const paymentTime = new Date(payment.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true });
+          const paymentMethod = payment.paymentMethod || 'Cash';
+          const transactionId = payment.transactionId || `TXN-${index + 1}`;
+          const status = payment.status === 'completed' ? 'Completed' : 'Pending';
+          
+          // Payment history row
+          doc.rect(20, paymentRowY, 550, 20).stroke('#000000');
+          
+          doc.fillColor('#000000')
+             .fontSize(9)
+             .font('Helvetica')
+             .text(paymentDate, 30, paymentRowY + 6)
+             .text(paymentTime, 80, paymentRowY + 6)
+             .text(`₹${payment.amount.toFixed(2)}`, 150, paymentRowY + 6)
+             .text(paymentMethod, 220, paymentRowY + 6, { width: 120, ellipsis: true })
+             .text(transactionId, 350, paymentRowY + 6, { width: 120, ellipsis: true });
+          
+          // Status with color coding
+          if (status === 'Completed') {
+            doc.fillColor('#059669').text(status, 480, paymentRowY + 6);
+          } else {
+            doc.fillColor('#d97706').text(status, 480, paymentRowY + 6);
+          }
+          
+          paymentRowY += 20;
+        });
+      } else {
+        // No payment history found - show a message
         doc.rect(20, paymentRowY, 550, 20).stroke('#000000');
         
         doc.fillColor('#000000')
            .fontSize(9)
            .font('Helvetica')
-           .text(paymentDate, 30, paymentRowY + 6)
-           .text(item.name || 'Lab Test', 80, paymentRowY + 6, { width: 90, ellipsis: true })
-           .text(`₹${itemTotal.toFixed(2)}`, 180, paymentRowY + 6)
-           .text(`₹${itemPaidAmount.toFixed(2)}`, 250, paymentRowY + 6)
-           .text('₹0.00', 320, paymentRowY + 6)
-           .text(`₹${itemBalance.toFixed(2)}`, 400, paymentRowY + 6);
-        
-        // Status with color coding
-        if (status === 'Paid') {
-          doc.fillColor('#059669').text(status, 480, paymentRowY + 6);
-        } else if (status === 'Pending') {
-          doc.fillColor('#d97706').text(status, 480, paymentRowY + 6);
-        } else {
-          doc.fillColor('#dc2626').text(status, 480, paymentRowY + 6);
-        }
+           .text('No payment transactions found', 30, paymentRowY + 6);
         
         paymentRowY += 20;
-      });
-    } else {
-      // Single service payment history
-      const totalAmount = testRequest.billing.amount || 0;
-      const balance = totalAmount - paidAmount;
-      const status = testRequest.billing.status === 'paid' || testRequest.billing.status === 'payment_received' ? 'Paid' : 
-                    testRequest.billing.status === 'refunded' ? 'Refunded' : 'Pending';
-      const paymentDate = testRequest.billing.paidAt ? 
-        new Date(testRequest.billing.paidAt).toLocaleDateString('en-GB') : 
-        new Date().toLocaleDateString('en-GB');
-      
+      }
+    } catch (error) {
+      // Error fetching payment logs - show a message
       doc.rect(20, paymentRowY, 550, 20).stroke('#000000');
       
       doc.fillColor('#000000')
          .fontSize(9)
          .font('Helvetica')
-         .text(paymentDate, 30, paymentRowY + 6)
-         .text(testRequest.testType || 'Lab Test', 80, paymentRowY + 6, { width: 90, ellipsis: true })
-         .text(`₹${totalAmount.toFixed(2)}`, 180, paymentRowY + 6)
-         .text(`₹${paidAmount.toFixed(2)}`, 250, paymentRowY + 6)
-         .text('₹0.00', 320, paymentRowY + 6)
-         .text(`₹${balance.toFixed(2)}`, 400, paymentRowY + 6);
-      
-      if (status === 'Paid') {
-        doc.fillColor('#059669').text(status, 480, paymentRowY + 6);
-      } else if (status === 'Pending') {
-        doc.fillColor('#d97706').text(status, 480, paymentRowY + 6);
-      } else {
-        doc.fillColor('#dc2626').text(status, 480, paymentRowY + 6);
-      }
+         .text('Payment history unavailable', 30, paymentRowY + 6);
       
       paymentRowY += 20;
     }
@@ -748,48 +742,76 @@ export const generateConsultationInvoicePDF = async (req, res) => {
        .fontSize(10)
        .font('Helvetica-Bold')
        .text('DATE', 30, paymentTableY + 8)
-       .text('SERVICE', 80, paymentTableY + 8)
-       .text('AMOUNT', 180, paymentTableY + 8)
-       .text('PAID', 250, paymentTableY + 8)
-       .text('REFUNDED', 320, paymentTableY + 8)
-       .text('BALANCE', 400, paymentTableY + 8)
+       .text('TIME', 80, paymentTableY + 8)
+       .text('AMOUNT', 150, paymentTableY + 8)
+       .text('PAYMENT METHOD', 220, paymentTableY + 8)
+       .text('TRANSACTION ID', 350, paymentTableY + 8)
        .text('STATUS', 480, paymentTableY + 8);
     
     let paymentRowY = paymentTableY + 25;
     
-    // Add payment history rows
-    patient.billing.forEach((bill, index) => {
-      const amount = bill.amount || 0;
-      const isPaid = bill.status === 'paid' || bill.status === 'payment_received';
-      const paidAmount = isPaid ? amount : 0;
-      const balance = amount - paidAmount;
-      const status = isPaid ? 'Paid' : 'Pending';
-      const paymentDate = bill.paidAt ? 
-        new Date(bill.paidAt).toLocaleDateString('en-GB') : 
-        new Date().toLocaleDateString('en-GB');
+    // Import PaymentLog model to fetch payment history
+    const PaymentLog = (await import('../models/PaymentLog.js')).default;
+    
+    try {
+      // Fetch payment logs for this patient
+      const paymentLogs = await PaymentLog.find({ 
+        patientId: patientId,
+        status: 'completed'
+      }).sort({ createdAt: -1 });
       
-      // Payment history row
+      if (paymentLogs.length > 0) {
+        // Show individual payment transactions
+        paymentLogs.forEach((payment, index) => {
+          const paymentDate = new Date(payment.createdAt).toLocaleDateString('en-GB');
+          const paymentTime = new Date(payment.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true });
+          const paymentMethod = payment.paymentMethod || 'Cash';
+          const transactionId = payment.transactionId || `TXN-${index + 1}`;
+          const status = payment.status === 'completed' ? 'Completed' : 'Pending';
+          
+          // Payment history row
+          doc.rect(20, paymentRowY, 550, 20).stroke('#000000');
+          
+          doc.fillColor('#000000')
+             .fontSize(9)
+             .font('Helvetica')
+             .text(paymentDate, 30, paymentRowY + 6)
+             .text(paymentTime, 80, paymentRowY + 6)
+             .text(`₹${payment.amount.toFixed(2)}`, 150, paymentRowY + 6)
+             .text(paymentMethod, 220, paymentRowY + 6, { width: 120, ellipsis: true })
+             .text(transactionId, 350, paymentRowY + 6, { width: 120, ellipsis: true });
+          
+          // Status with color coding
+          if (status === 'Completed') {
+            doc.fillColor('#059669').text(status, 480, paymentRowY + 6);
+          } else {
+            doc.fillColor('#d97706').text(status, 480, paymentRowY + 6);
+          }
+          
+          paymentRowY += 20;
+        });
+      } else {
+        // No payment history found - show a message
+        doc.rect(20, paymentRowY, 550, 20).stroke('#000000');
+        
+        doc.fillColor('#000000')
+           .fontSize(9)
+           .font('Helvetica')
+           .text('No payment transactions found', 30, paymentRowY + 6);
+        
+        paymentRowY += 20;
+      }
+    } catch (error) {
+      // Error fetching payment logs - show a message
       doc.rect(20, paymentRowY, 550, 20).stroke('#000000');
       
       doc.fillColor('#000000')
          .fontSize(9)
          .font('Helvetica')
-         .text(paymentDate, 30, paymentRowY + 6)
-         .text(bill.description || bill.type || 'Consultation', 80, paymentRowY + 6, { width: 90, ellipsis: true })
-         .text(`₹${amount.toFixed(2)}`, 180, paymentRowY + 6)
-         .text(`₹${paidAmount.toFixed(2)}`, 250, paymentRowY + 6)
-         .text('₹0.00', 320, paymentRowY + 6)
-         .text(`₹${balance.toFixed(2)}`, 400, paymentRowY + 6);
-      
-      // Status with color coding
-      if (status === 'Paid') {
-        doc.fillColor('#059669').text(status, 480, paymentRowY + 6);
-      } else {
-        doc.fillColor('#d97706').text(status, 480, paymentRowY + 6);
-      }
+         .text('Payment history unavailable', 30, paymentRowY + 6);
       
       paymentRowY += 20;
-    });
+    }
     
     // ===== FOOTER SECTION =====
     const footerY = paymentRowY + 30;
@@ -1092,48 +1114,76 @@ export const generateReassignmentInvoicePDF = async (req, res) => {
        .fontSize(10)
        .font('Helvetica-Bold')
        .text('DATE', 30, paymentTableY + 8)
-       .text('SERVICE', 80, paymentTableY + 8)
-       .text('AMOUNT', 180, paymentTableY + 8)
-       .text('PAID', 250, paymentTableY + 8)
-       .text('REFUNDED', 320, paymentTableY + 8)
-       .text('BALANCE', 400, paymentTableY + 8)
+       .text('TIME', 80, paymentTableY + 8)
+       .text('AMOUNT', 150, paymentTableY + 8)
+       .text('PAYMENT METHOD', 220, paymentTableY + 8)
+       .text('TRANSACTION ID', 350, paymentTableY + 8)
        .text('STATUS', 480, paymentTableY + 8);
     
     let paymentRowY = paymentTableY + 25;
     
-    // Add payment history rows
-    patient.reassignedBilling.forEach((bill, index) => {
-      const amount = bill.amount || 0;
-      const isPaid = bill.status === 'paid' || bill.status === 'payment_received';
-      const paidAmount = isPaid ? amount : 0;
-      const balance = amount - paidAmount;
-      const status = isPaid ? 'Paid' : 'Pending';
-      const paymentDate = bill.paidAt ? 
-        new Date(bill.paidAt).toLocaleDateString('en-GB') : 
-        new Date().toLocaleDateString('en-GB');
+    // Import PaymentLog model to fetch payment history
+    const PaymentLog = (await import('../models/PaymentLog.js')).default;
+    
+    try {
+      // Fetch payment logs for this patient
+      const paymentLogs = await PaymentLog.find({ 
+        patientId: patientId,
+        status: 'completed'
+      }).sort({ createdAt: -1 });
       
-      // Payment history row
+      if (paymentLogs.length > 0) {
+        // Show individual payment transactions
+        paymentLogs.forEach((payment, index) => {
+          const paymentDate = new Date(payment.createdAt).toLocaleDateString('en-GB');
+          const paymentTime = new Date(payment.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true });
+          const paymentMethod = payment.paymentMethod || 'Cash';
+          const transactionId = payment.transactionId || `TXN-${index + 1}`;
+          const status = payment.status === 'completed' ? 'Completed' : 'Pending';
+          
+          // Payment history row
+          doc.rect(20, paymentRowY, 550, 20).stroke('#000000');
+          
+          doc.fillColor('#000000')
+             .fontSize(9)
+             .font('Helvetica')
+             .text(paymentDate, 30, paymentRowY + 6)
+             .text(paymentTime, 80, paymentRowY + 6)
+             .text(`₹${payment.amount.toFixed(2)}`, 150, paymentRowY + 6)
+             .text(paymentMethod, 220, paymentRowY + 6, { width: 120, ellipsis: true })
+             .text(transactionId, 350, paymentRowY + 6, { width: 120, ellipsis: true });
+          
+          // Status with color coding
+          if (status === 'Completed') {
+            doc.fillColor('#059669').text(status, 480, paymentRowY + 6);
+          } else {
+            doc.fillColor('#d97706').text(status, 480, paymentRowY + 6);
+          }
+          
+          paymentRowY += 20;
+        });
+      } else {
+        // No payment history found - show a message
+        doc.rect(20, paymentRowY, 550, 20).stroke('#000000');
+        
+        doc.fillColor('#000000')
+           .fontSize(9)
+           .font('Helvetica')
+           .text('No payment transactions found', 30, paymentRowY + 6);
+        
+        paymentRowY += 20;
+      }
+    } catch (error) {
+      // Error fetching payment logs - show a message
       doc.rect(20, paymentRowY, 550, 20).stroke('#000000');
       
       doc.fillColor('#000000')
          .fontSize(9)
          .font('Helvetica')
-         .text(paymentDate, 30, paymentRowY + 6)
-         .text(bill.description || bill.type || 'Reassignment Service', 80, paymentRowY + 6, { width: 90, ellipsis: true })
-         .text(`₹${amount.toFixed(2)}`, 180, paymentRowY + 6)
-         .text(`₹${paidAmount.toFixed(2)}`, 250, paymentRowY + 6)
-         .text('₹0.00', 320, paymentRowY + 6)
-         .text(`₹${balance.toFixed(2)}`, 400, paymentRowY + 6);
-      
-      // Status with color coding
-      if (status === 'Paid') {
-        doc.fillColor('#059669').text(status, 480, paymentRowY + 6);
-      } else {
-        doc.fillColor('#d97706').text(status, 480, paymentRowY + 6);
-      }
+         .text('Payment history unavailable', 30, paymentRowY + 6);
       
       paymentRowY += 20;
-    });
+    }
     
     // ===== FOOTER SECTION =====
     const footerY = paymentRowY + 30;

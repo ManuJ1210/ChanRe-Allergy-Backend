@@ -40,6 +40,37 @@ router.get('/test-request/:testRequestId', ensureCenterIsolation, async (req, re
   }
 });
 
+// Get payment history for a specific patient
+router.get('/patient/:patientId', ensureCenterIsolation, async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    const { centerId } = req.user;
+    
+    const paymentLogs = await PaymentLog.find({ 
+      patientId: new mongoose.Types.ObjectId(patientId),
+      centerId: new mongoose.Types.ObjectId(centerId)
+    })
+      .populate('processedBy', 'name email')
+      .populate('createdBy', 'name email')
+      .populate('verifiedBy', 'name email')
+      .populate('testRequestId', 'testType testDescription workflowStage')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      paymentLogs,
+      total: paymentLogs.length
+    });
+  } catch (error) {
+    console.error('❌ Error fetching payment logs for patient:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch payment logs',
+      error: error.message
+    });
+  }
+});
+
 // Get payment logs for the current center
 router.get('/center', ensureCenterIsolation, async (req, res) => {
   try {

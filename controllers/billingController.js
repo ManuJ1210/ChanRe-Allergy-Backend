@@ -13,6 +13,7 @@ import {
   logPatientBillingRefund,
   logPatientBillingCancellation
 } from '../services/paymentLogService.js';
+import TransactionService from '../services/transactionService.js';
 
 // Generate bill for a test request (Receptionist action)
 export const generateBillForTestRequest = async (req, res) => {
@@ -346,6 +347,14 @@ export const markBillPaidForTestRequest = async (req, res) => {
 
     // LOG PAYMENT TRANSACTION
     try {
+      console.log('🔍 Attempting to log payment transaction:', {
+        testRequestId: testRequest._id,
+        paymentAmount,
+        paymentMethod,
+        transactionId,
+        userId: req.user.id || req.user._id
+      });
+
       const paymentData = {
         amount: paymentAmount,
         paymentMethod: paymentMethod || 'Cash',
@@ -364,8 +373,10 @@ export const markBillPaidForTestRequest = async (req, res) => {
         userAgent: req.headers?.['user-agent'],
       };
 
-      await logPaymentTransaction(paymentData, testRequest._id, req.user.id || req.user._id, metadata);
+      const paymentLog = await logPaymentTransaction(paymentData, testRequest._id, req.user.id || req.user._id, metadata);
+      console.log('✅ Payment transaction logged successfully:', paymentLog._id);
     } catch (paymentLogError) {
+      console.error('❌ Payment logging failed:', paymentLogError);
       // Continue execution - payment logging failure should not stop the transaction
     }
 
@@ -2239,7 +2250,7 @@ export const createConsultationFeeBilling = async (req, res) => {
     }
 
     // Find the patient
-    const patient = await Patient.findById(patientId);
+    const patient = await Patient.findById(patientId).populate('centerId', 'name');
     if (!patient) {
       return res.status(404).json({
         success: false,
@@ -2364,6 +2375,36 @@ export const createConsultationFeeBilling = async (req, res) => {
     } catch (paymentLogError) {
       console.error('❌ Error logging consultation fee payment:', paymentLogError);
       // Continue execution - payment logging failure should not stop the transaction
+    }
+
+    // Create consultation transaction record
+    try {
+      const consultationTransactionData = {
+        patientId: patientId,
+        doctorId: currentDoctorId,
+        centerId: patient.centerId,
+        consultationType: 'OP', // Default consultation type
+        amount: parseFloat(amount),
+        paymentMethod: paymentMethod || 'cash',
+        paymentType: parseFloat(amount) >= (consultationFee.amount || 0) ? 'full' : 'partial',
+        invoiceNumber: consultationFee.invoiceNumber,
+        paymentBreakdown: {
+          registrationFee: 0,
+          consultationFee: parseFloat(amount),
+          serviceCharges: [],
+          subtotal: parseFloat(amount),
+          taxAmount: 0,
+          discountAmount: 0,
+          totalAmount: parseFloat(amount)
+        },
+        notes: notes || 'Consultation fee payment processed'
+      };
+
+      await TransactionService.createConsultationTransaction(consultationTransactionData, req.user);
+      console.log('✅ Consultation transaction created successfully');
+    } catch (transactionError) {
+      console.error('❌ Error creating consultation transaction:', transactionError);
+      // Continue execution - transaction creation failure should not stop the payment
     }
 
     res.status(201).json({
@@ -3013,6 +3054,10 @@ export const updatePaymentStatus = async (req, res) => {
     const numericPaidAmount = parseFloat(paidAmount) || 0;
     console.log('💰 Converting paid amount:', { original: paidAmount, converted: numericPaidAmount });
     
+    // ✅ FIXED: Store previous paid amount BEFORE updating for payment logging
+    const previousPaidAmount = testRequest.billing?.paidAmount || 0;
+    console.log('💰 Previous vs new paid amount:', { previous: previousPaidAmount, new: numericPaidAmount });
+    
     // Validate data types before proceeding
     console.log('🔍 Data type validation:', {
       paidAmount: typeof numericPaidAmount,
@@ -3138,8 +3183,41 @@ export const updatePaymentStatus = async (req, res) => {
       });
     }
 
-    // LOG PAYMENT STATUS UPDATE
+    // LOG PAYMENT TRANSACTION
     try {
+      console.log('🔍 Attempting to log payment transaction in updatePaymentStatus:', {
+        testRequestId: testRequest._id,
+        paidAmount: numericPaidAmount,
+        paymentMethod: paymentMethod || 'cash',
+        userId: req.user?.id || req.user?._id
+      });
+
+      // Check if this is a new payment (not just a status update)
+      const paymentDifference = numericPaidAmount - previousPaidAmount;
+      
+      if (paymentDifference > 0) {
+        // This is a new payment - log it as a transaction
+        const paymentData = {
+          amount: paymentDifference,
+          paymentMethod: paymentMethod || 'cash',
+          transactionId: `ADMIN-${Date.now()}`,
+          notes: notes || `Payment updated by admin - Amount: ${paymentDifference}`,
+          currency: 'INR',
+          paymentType: 'test',
+          status: 'completed'
+        };
+
+        const metadata = {
+          source: 'admin',
+          ipAddress: req.ip || req.connection?.remoteAddress || 'unknown',
+          userAgent: req.headers?.['user-agent'] || 'admin-panel'
+        };
+
+        const paymentLog = await logPaymentTransaction(paymentData, testRequest._id, req.user?.id || req.user?._id, metadata);
+        console.log('✅ Payment transaction logged successfully:', paymentLog._id);
+      }
+
+      // Also log status update if status changed
       const previousStatus = testRequest.billing?.status || 'not_generated';
       const currentStatus = updated.billing?.status;
       
@@ -3148,14 +3226,14 @@ export const updatePaymentStatus = async (req, res) => {
           testRequest._id,
           previousStatus,
           currentStatus,
-          req.user.id || req.user._id,
+          req.user?.id || req.user?._id,
           `Payment status updated by admin`,
           `Updated payment amount to ${numericPaidAmount}, status changed from ${previousStatus} to ${currentStatus}`
         );
         console.log('✅ Payment status update logged successfully');
       }
     } catch (paymentLogError) {
-      console.error('❌ Error logging payment status update:', paymentLogError);
+      console.error('❌ Error logging payment transaction:', paymentLogError);
       // Continue execution - logging failure should not stop the transaction
     }
 
@@ -3309,52 +3387,33 @@ export const recordPatientPayment = async (req, res) => {
     await patient.save();
     console.log('✅ Patient saved successfully');
 
-    // LOG PAYMENT TRANSACTION - Direct billing payment
+    // LOG PAYMENT TRANSACTION - Use proper payment logging service
     try {
-      // For patient billing payments (not test-request related), we'll implement direct payment logging
       const userId = req.user?.id || req.user?._id;
       if (!userId) {
         console.warn('⚠️ No user ID found for payment logging - skipping payment log');
-        // Continue without logging
       } else {
-        // Create a simplified payment log entry
-        try {
-          const paymentLog = new PaymentLog({
-            testRequestId: null, // No test request involved
-            patientId: patientId,
-            patientName: patient.name,
-            centerId: patient.centerId || req.user.centerId,
-            amount: collectionAmount,
-            currency: 'INR',
-            paymentMethod: paymentMethod || 'cash',
-            paymentType: paymentType || 'partial',
-            status: 'completed',
-            statusHistory: [
-              {
-                status: 'completed',
-                timestamp: new Date(),
-                notes: notes || 'Payment recorded for billing'
-              }
-            ],
-            processedBy: userId,
-            notes: notes || 'Payment recorded from billing UI',
-            metadata: {
-              source: 'billing_ui',
-              ipAddress: req.ip || req.connection?.remoteAddress || 'unknown',
-              userAgent: req.headers?.['user-agent'] || 'unknown'
-            },
-            createdAt: new Date()
-          });
-          
-          await paymentLog.save();
-          console.log('✅ Patient payment log created successfully');
-        } catch (directLogError) {
-          console.error('❌ Error creating direct payment log:', directLogError);
-          // Continue without failing the operation
-        }
+        const paymentData = {
+          amount: collectionAmount,
+          paymentMethod: paymentMethod || 'cash',
+          paymentType: paymentType || 'consultation',
+          status: 'completed',
+          notes: notes || 'Payment recorded from billing UI',
+          currency: 'INR'
+        };
+
+        const metadata = {
+          source: 'web',
+          ipAddress: req.ip || req.connection?.remoteAddress || 'unknown',
+          userAgent: req.headers?.['user-agent'] || 'unknown'
+        };
+
+        // Use the proper payment logging service
+        await logPatientBillingPayment(patientId, paymentData, userId, metadata);
+        console.log('✅ Patient payment logged successfully in payment history');
       }
     } catch (paymentLogError) {
-      console.error('❌ Error in payment logging section:', paymentLogError);
+      console.error('❌ Error in payment logging:', paymentLogError);
       // Don't fail the whole operation
     }
 
@@ -3501,8 +3560,9 @@ export const recordPartialPayment = async (req, res) => {
         userAgent: req.headers?.['user-agent']
       };
 
-      // Skip test request logging for patient billing
-      console.log('💳 Partial payment processed for patient billing - skipping test request logging');
+      // Log each individual payment transaction for proper payment history tracking
+      await logPatientBillingPayment(patientId, paymentData, req.user._id, metadata);
+      console.log('💳 Partial payment logged successfully in payment history');
     } catch (paymentLogError) {
       console.error('❌ Error in payment logging:', paymentLogError);
     }
@@ -3892,6 +3952,71 @@ export const processPayment = async (req, res) => {
       // Continue execution - payment logging failure should not stop the transaction
     }
 
+    // Create transaction record - determine type based on billing content
+    try {
+      // Check if this is a test request payment (receipt transaction)
+      const testRequest = await TestRequest.findOne({ patientId: patientId }).sort({ createdAt: -1 });
+      
+      if (testRequest) {
+        // This is a receipt transaction (test request payment)
+        const receiptTransactionData = {
+          testRequestId: testRequest._id,
+          patientId: patientId,
+          centerId: testRequest.centerId,
+          amount: paymentAmount,
+          paymentMethod: paymentMethod,
+          paymentType: paymentAmount >= (patient.billing[0]?.amount || 0) ? 'full' : 'partial',
+          receiptNumber: `REC-${Date.now()}-${patient._id.toString().slice(-6)}`,
+          invoiceNumber: patient.billing[0]?.invoiceNumber || `INV-${Date.now()}-${patient._id.toString().slice(-6)}`,
+          paymentBreakdown: {
+            items: patient.billing.map(bill => ({
+              name: bill.description || bill.type,
+              amount: bill.amount || 0,
+              quantity: 1
+            })),
+            subtotal: paymentAmount,
+            taxAmount: 0,
+            discountAmount: 0,
+            totalAmount: paymentAmount
+          },
+          notes: notes || 'Payment processed through billing system'
+        };
+
+        await TransactionService.createReceiptTransaction(receiptTransactionData, req.user);
+        console.log('✅ Receipt transaction created successfully');
+      } else {
+        // This is likely a consultation billing transaction
+        const consultationTransactionData = {
+          patientId: patientId,
+          doctorId: patient.assignedDoctor?._id || patient.assignedDoctor,
+          centerId: patient.centerId,
+          consultationType: 'OP', // Default consultation type
+          amount: paymentAmount,
+          paymentMethod: paymentMethod,
+          paymentType: paymentAmount >= (patient.billing[0]?.amount || 0) ? 'full' : 'partial',
+          invoiceNumber: patient.billing[0]?.invoiceNumber || `INV-${Date.now()}-${patient._id.toString().slice(-6)}`,
+          paymentBreakdown: {
+            registrationFee: 0,
+            consultationFee: paymentAmount,
+            serviceCharges: [],
+            subtotal: paymentAmount,
+            taxAmount: 0,
+            discountAmount: 0,
+            totalAmount: paymentAmount
+          },
+          notes: notes || 'Consultation payment processed through billing system'
+        };
+
+        await TransactionService.createConsultationTransaction(consultationTransactionData, req.user);
+        console.log('✅ Consultation transaction created successfully');
+      }
+    } catch (transactionError) {
+      console.error('❌ Error creating transaction:', transactionError);
+      console.error('❌ Transaction error details:', transactionError.message);
+      console.error('❌ Transaction error stack:', transactionError.stack);
+      // Continue execution - transaction creation failure should not stop the payment
+    }
+
     console.log('✅ Payment processed successfully');
     res.status(200).json({
       success: true,
@@ -4265,6 +4390,61 @@ export const processRefund = async (req, res) => {
       // Continue execution - payment logging failure should not stop the transaction
     }
 
+    // Update transaction records with refund information
+    try {
+      console.log('💳 Updating transaction records with refund information');
+      
+      // Find the most recent consultation transaction for this patient
+      const ConsultationTransaction = (await import('../models/ConsultationTransaction.js')).default;
+      const transaction = await ConsultationTransaction.findOne({ 
+        patientId: patientId 
+      }).sort({ createdAt: -1 });
+      
+      if (transaction) {
+        console.log('🔍 User data for refund:', {
+          userId: req.user?.id || req.user?._id,
+          userObject: req.user
+        });
+        
+        console.log('🔍 Refund data being passed:', {
+          amount: refundAmount,
+          refundMethod: refundMethod,
+          refundReason: reason,
+          refundType: refundType
+        });
+        
+        // Map refund method to valid enum values
+        const refundMethodMapping = {
+          'cash': 'cash',
+          'card': 'card',
+          'upi': 'upi',
+          'net_banking': 'other',
+          'bank_transfer': 'bank_transfer',
+          'other': 'other'
+        };
+        
+        const mappedRefundMethod = refundMethodMapping[refundMethod] || 'other';
+        
+        const refundData = {
+          amount: refundAmount,
+          refundMethod: mappedRefundMethod,
+          refundReason: reason,
+          refundedAt: new Date(),
+          refundType: refundType,
+          refundedBy: req.user?.id || req.user?._id || 'system',
+          externalRefundId: `REF-${Date.now()}-${patientId.toString().slice(-6)}`
+        };
+        
+        await transaction.addRefund(refundData);
+        console.log('✅ Transaction record updated with refund information');
+      } else {
+        console.log('⚠️ No consultation transaction found to update with refund');
+      }
+    } catch (transactionError) {
+      console.error('❌ Error updating transaction record with refund:', transactionError);
+      // Continue execution - transaction update failure should not stop the refund
+    }
+
     console.log('✅ Refund processed successfully');
     res.status(200).json({
       success: true,
@@ -4398,6 +4578,37 @@ export const processTestRequestRefund = async (req, res) => {
     } catch (paymentLogError) {
       console.error('❌ Error logging refund transaction:', paymentLogError);
       // Continue execution - payment logging failure should not stop the transaction
+    }
+
+    // Update transaction records with refund information
+    try {
+      console.log('💳 Updating transaction records with refund information');
+      
+      // Find the most recent receipt transaction for this test request
+      const ReceiptTransaction = (await import('../models/ReceiptTransaction.js')).default;
+      const transaction = await ReceiptTransaction.findOne({ 
+        testRequestId: testRequest._id 
+      }).sort({ createdAt: -1 });
+      
+      if (transaction) {
+        const refundData = {
+          amount: refundAmount,
+          refundMethod: refundMethod,
+          refundReason: reason,
+          refundedAt: new Date(),
+          refundType: 'full', // Test request refunds are typically full refunds
+          refundedBy: req.user?.id || req.user?._id || 'system',
+          externalRefundId: `REF-${Date.now()}-${testRequest._id.toString().slice(-6)}`
+        };
+        
+        await transaction.addRefund(refundData);
+        console.log('✅ Transaction record updated with refund information');
+      } else {
+        console.log('⚠️ No receipt transaction found to update with refund');
+      }
+    } catch (transactionError) {
+      console.error('❌ Error updating transaction record with refund:', transactionError);
+      // Continue execution - transaction update failure should not stop the refund
     }
 
     console.log('✅ Refund processed successfully');

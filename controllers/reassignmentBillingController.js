@@ -6,6 +6,7 @@ import {
   logPatientBillingRefund,
   logPatientBillingCancellation
 } from '../services/paymentLogService.js';
+import TransactionService from '../services/transactionService.js';
 
 /**
  * Controller for handling patient reassignment billing operations
@@ -337,7 +338,7 @@ class ReassignmentBillingController {
         const paymentData = {
           amount: paymentAmount,
           paymentMethod,
-          paymentType: 'reassignment_consultation',
+          paymentType: 'consultation',
           notes: notes || `Reassignment consultation payment for patient: ${patient.name}`,
           invoiceNumber: latestBill.invoiceNumber,
           consultationType: latestBill.consultationType || 'OP',
@@ -369,6 +370,41 @@ class ReassignmentBillingController {
       } catch (paymentLogError) {
         console.error('❌ Error logging reassignment billing payment:', paymentLogError);
         // Continue execution - payment logging failure should not stop the transaction
+      }
+
+      // Create reassignment transaction record
+      try {
+        const reassignmentTransactionData = {
+          patientId: patientId,
+          assignedDoctorId: patient.assignedDoctor?._id || patient.assignedDoctor,
+          currentDoctorId: patient.currentDoctor?._id || patient.currentDoctor,
+          centerId: centerId,
+          reassignmentType: 'regular',
+          consultationType: latestBill.consultationType || 'OP',
+          reassignmentReason: patient.reassignmentHistory?.[patient.reassignmentHistory.length - 1]?.reason || 'Patient reassignment',
+          reassignmentNotes: patient.reassignmentHistory?.[patient.reassignmentHistory.length - 1]?.notes || '',
+          amount: paymentAmount,
+          paymentMethod: paymentMethod,
+          paymentType: paymentAmount >= (latestBill.amount || 0) ? 'full' : 'partial',
+          invoiceNumber: latestBill.invoiceNumber,
+          paymentBreakdown: {
+            consultationFee: latestBill.consultationFee || latestBill.amount || 0,
+            serviceCharges: latestBill.serviceCharges || [],
+            subtotal: latestBill.amount || 0,
+            taxAmount: 0,
+            discountAmount: 0,
+            totalAmount: latestBill.amount || 0
+          },
+          isEligibleForFreeReassignment: ReassignmentBillingController.isEligibleForFreeReassignment(patient),
+          firstConsultationDate: patient.billing?.[0]?.createdAt,
+          notes: notes || 'Payment processed for reassignment consultation'
+        };
+
+        await TransactionService.createReassignmentTransaction(reassignmentTransactionData, req.user);
+        console.log('✅ Reassignment transaction created successfully');
+      } catch (transactionError) {
+        console.error('❌ Error creating reassignment transaction:', transactionError);
+        // Continue execution - transaction creation failure should not stop the payment
       }
 
       console.log('✅ Payment processed for reassignment consultation:', {
@@ -721,6 +757,37 @@ class ReassignmentBillingController {
       } catch (paymentLogError) {
         console.error('❌ Error logging reassignment billing refund:', paymentLogError);
         // Continue execution - payment logging failure should not stop the transaction
+      }
+
+      // Update transaction records with refund information
+      try {
+        console.log('💳 Updating transaction records with refund information');
+        
+        // Find the most recent reassignment transaction for this patient
+        const ReassignmentTransaction = (await import('../models/ReassignmentTransaction.js')).default;
+        const transaction = await ReassignmentTransaction.findOne({ 
+          patientId: patientId 
+        }).sort({ createdAt: -1 });
+        
+        if (transaction) {
+          const refundData = {
+            amount: refundAmount,
+            refundMethod: refundMethod,
+            refundReason: reason,
+            refundedAt: new Date(),
+            refundType: refundType,
+            refundedBy: req.user.id || req.user._id,
+            externalRefundId: refundRecord.refundNumber
+          };
+          
+          await transaction.addRefund(refundData);
+          console.log('✅ Transaction record updated with refund information');
+        } else {
+          console.log('⚠️ No reassignment transaction found to update with refund');
+        }
+      } catch (transactionError) {
+        console.error('❌ Error updating transaction record with refund:', transactionError);
+        // Continue execution - transaction update failure should not stop the refund
       }
 
       console.log('✅ Refund processed for reassignment consultation:', {
