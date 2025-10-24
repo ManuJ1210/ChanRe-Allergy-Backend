@@ -311,12 +311,35 @@ export const markBillPaidForTestRequest = async (req, res) => {
     const newPaidAmount = currentPaidAmount + paymentAmount;
     const totalAmount = testRequest.billing.amount;
     
+    // Normalize payment method to match PaymentLog enum values
+    const paymentMethodMapping = {
+      'Cash': 'cash',
+      'Card': 'credit_card',
+      'UPI': 'upi',
+      'Net Banking': 'net_banking',
+      'Cheque': 'cheque',
+      'Other': 'other'
+    };
+    
+    const normalizedPaymentMethod = paymentMethodMapping[paymentMethod] || 'cash';
+    
+    // Generate proper transaction ID if not provided or if it's the payment method
+    const properTransactionId = transactionId && 
+                                transactionId !== 'cash' && 
+                                transactionId !== 'Cash' && 
+                                transactionId !== 'card' && 
+                                transactionId !== 'Card' && 
+                                transactionId !== 'upi' && 
+                                transactionId !== 'UPI' 
+                                ? transactionId 
+                                : `PAY-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+    
     // Update payment information
     testRequest.billing.paidAmount = newPaidAmount;
     testRequest.billing.paidAt = new Date();
     testRequest.billing.paidBy = req.user.id || req.user._id;
-    testRequest.billing.paymentMethod = paymentMethod || 'Cash';
-    testRequest.billing.transactionId = transactionId;
+    testRequest.billing.paymentMethod = normalizedPaymentMethod;
+    testRequest.billing.transactionId = properTransactionId;
     testRequest.billing.receiptUpload = receiptFileName;
     testRequest.billing.verificationNotes = verificationNotes;
     
@@ -357,8 +380,8 @@ export const markBillPaidForTestRequest = async (req, res) => {
 
       const paymentData = {
         amount: paymentAmount,
-        paymentMethod: paymentMethod || 'Cash',
-        transactionId: transactionId,
+        paymentMethod: normalizedPaymentMethod,
+        transactionId: properTransactionId,
         receiptFile: receiptFileName,
         notes: verificationNotes,
         verificationNotes: verificationNotes,
@@ -1462,6 +1485,9 @@ export const getBillingReports = async (req, res) => {
         if (status === 'paid' || status === 'verified') {
           stats.paidBills++;
           stats.paidAmount += amount;
+        } else if (status === 'partially_paid') {
+          stats.paymentReceivedBills++;
+          stats.paymentReceivedAmount += amount;
         } else if (status === 'generated') {
           stats.pendingBills++;
           stats.pendingAmount += amount;
@@ -2074,6 +2100,9 @@ export const getCenterBillingReports = async (req, res) => {
         if (status === 'paid' || status === 'verified') {
           stats.paidBills++;
           stats.paidAmount += amount;
+        } else if (status === 'partially_paid') {
+          stats.paymentReceivedBills++;
+          stats.paymentReceivedAmount += amount;
         } else if (status === 'generated') {
           stats.pendingBills++;
           stats.pendingAmount += amount;
